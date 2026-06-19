@@ -22,6 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import jarvis_router  # Phase-1 router (classify / build_ladder / complete_with_fallback)
 import jarvis_council  # Phase-4 multi-model planning council
 import jarvis_memory   # Phase-3 personal_facts + session
+import jarvis_voice    # Phase-6 STT/TTS glue
+import jarvis_wake     # Phase-6 wake-word + VAD
 from jarvis_memory import FactsStore
 from openjarvis.core.types import Message, Role
 from openjarvis.engine.litellm import LiteLLMEngine
@@ -93,6 +95,26 @@ async def stream_chat(message: str, model_choice: str, max_tokens: int = 512):
         yield {"type": "done", "content": result["content"]}
     except Exception as exc:  # noqa: BLE001 - every rung failed
         yield {"type": "error", "detail": str(exc)}
+
+
+async def speak_answer(send_json, send_bytes, answer, voice, cancel_event):
+    """Synthesize the answer sentence-by-sentence and stream mp3 to the client.
+    Honors cancel_event (barge-in): stops between sentences and emits 'canceled'."""
+    for i, sentence in enumerate(jarvis_voice.split_sentences(answer)):
+        if cancel_event.is_set():
+            await send_json({"type": "canceled"})
+            return
+        try:
+            audio = await asyncio.to_thread(jarvis_voice.synthesize, sentence, voice)
+        except Exception as exc:  # noqa: BLE001 - one bad sentence shouldn't kill the turn
+            await send_json({"type": "error", "detail": f"tts: {exc}"})
+            continue
+        if cancel_event.is_set():
+            await send_json({"type": "canceled"})
+            return
+        await send_json({"type": "speak_begin", "seq": i})
+        await send_bytes(audio)
+        await send_json({"type": "speak_end", "seq": i})
 
 
 @app.websocket("/api/chat")

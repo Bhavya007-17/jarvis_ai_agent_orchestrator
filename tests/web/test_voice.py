@@ -37,3 +37,30 @@ def test_synthesize_returns_mp3_bytes(monkeypatch):
     monkeypatch.setattr(jarvis_voice, "_edge_engine", lambda voice: _FakeEdge(voice))
     out = jarvis_voice.synthesize("hi", voice="v")
     assert out == b"MP3:hi"
+
+
+import asyncio as _asyncio
+import jarvis_web_api
+
+def _run(coro): return _asyncio.new_event_loop().run_until_complete(coro)
+
+class _Sink:
+    def __init__(self): self.frames = []; self.audio = []
+    async def send_json(self, f): self.frames.append(f)
+    async def send_bytes(self, b): self.audio.append(b)
+
+def test_speak_answer_streams_each_sentence(monkeypatch):
+    monkeypatch.setattr(jarvis_voice, "synthesize", lambda s, v: b"MP3:" + s.encode())
+    s = _Sink()
+    ev = _asyncio.Event()
+    _run(jarvis_web_api.speak_answer(s.send_json, s.send_bytes, "Hi. Bye.", "v", ev))
+    assert [f["type"] for f in s.frames] == ["speak_begin", "speak_end", "speak_begin", "speak_end"]
+    assert s.audio == [b"MP3:Hi.", b"MP3:Bye."]
+
+def test_speak_answer_cancels_before_first_sentence(monkeypatch):
+    monkeypatch.setattr(jarvis_voice, "synthesize", lambda s, v: b"MP3")
+    s = _Sink()
+    ev = _asyncio.Event(); ev.set()
+    _run(jarvis_web_api.speak_answer(s.send_json, s.send_bytes, "Hi. Bye.", "v", ev))
+    assert s.frames == [{"type": "canceled"}]
+    assert s.audio == []
