@@ -9,6 +9,7 @@ Wires the browser to the Jarvis brain without touching OpenJarvis/_vendor:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 
@@ -95,7 +96,11 @@ async def chat_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = json.loads(await websocket.receive_text())
+            except json.JSONDecodeError:
+                await websocket.send_json({"type": "error", "detail": "Invalid JSON"})
+                continue
             message = (data or {}).get("message", "").strip()
             if not message:
                 await websocket.send_json({"type": "error", "detail": "Missing 'message'"})

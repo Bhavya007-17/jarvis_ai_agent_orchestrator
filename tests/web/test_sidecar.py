@@ -63,3 +63,11 @@ def test_stream_chat_falls_back_on_stream_error(monkeypatch):
     frames = _drain(jarvis_web_api.stream_chat("hello", "auto"))
     assert frames[-1] == {"type": "done", "content": "fallback answer"}
     assert any(f["type"] == "rung" and f["rung"] == "local" for f in frames)
+
+
+def test_chat_ws_rejects_invalid_json():
+    with TestClient(jarvis_web_api.app).websocket_connect("/api/chat") as ws:
+        ws.send_text("not json")
+        f = ws.receive_json()
+        assert f["type"] == "error"
+        assert "JSON" in f["detail"]
