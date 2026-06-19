@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { MessageSquare, Users, Network, Brain, Wrench, Settings as SettingsIcon } from 'lucide-react'
+import { MessageSquare, Users, Network, Brain, Wrench, Settings as SettingsIcon, Mic } from 'lucide-react'
 import ChatTab from './components/ChatTab'
 import CouncilTab from './components/CouncilTab'
 import GraphTab from './components/GraphTab'
 import MemoryTab from './components/MemoryTab'
 import ToolsTab from './components/ToolsTab'
 import SettingsTab from './components/SettingsTab'
+import VoiceTab from './components/VoiceTab'
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
+  { id: 'voice', label: 'Voice', icon: Mic },
   { id: 'council', label: 'Council', icon: Users },
   { id: 'graph', label: 'Connections', icon: Network },
   { id: 'memory', label: 'Memory', icon: Brain },
@@ -34,6 +36,7 @@ export default function App() {
       </nav>
       <main className="flex-1 min-w-0">
         {tab === 'chat' && <ChatTab model={model} />}
+        {tab === 'voice' && <VoiceTab model={model} />}
         {tab === 'council' && <CouncilTab />}
         {tab === 'graph' && <GraphTab />}
         {tab === 'memory' && <MemoryTab />}
