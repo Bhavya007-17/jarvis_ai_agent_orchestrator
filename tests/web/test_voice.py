@@ -64,3 +64,47 @@ def test_speak_answer_cancels_before_first_sentence(monkeypatch):
     _run(jarvis_web_api.speak_answer(s.send_json, s.send_bytes, "Hi. Bye.", "v", ev))
     assert s.frames == [{"type": "canceled"}]
     assert s.audio == []
+
+
+import json as _json
+from fastapi.testclient import TestClient
+import jarvis_wake
+
+class _FakeWake:
+    def __init__(self, *a, **k): pass
+    def triggered(self, frame): return frame == b"WAKE"
+
+class _FakeSeg:
+    def __init__(self, *a, **k): self.in_speech = False
+    def feed(self, frame): return b"UTTER" if frame == b"END" else None
+    def reset(self): pass
+
+async def _fake_stream_chat(message, model, max_tokens=512):
+    yield {"type": "rung", "rung": "chosen", "model": "nim"}
+    yield {"type": "chunk", "content": "Hi. Bye."}
+    yield {"type": "done", "content": "Hi. Bye."}
+
+def test_voice_ws_wake_transcribe_answer_speak(monkeypatch):
+    monkeypatch.setattr(jarvis_wake, "WakeWord", _FakeWake)
+    monkeypatch.setattr(jarvis_wake, "Segmenter", _FakeSeg)
+    monkeypatch.setattr(jarvis_voice, "pcm_to_wav", lambda pcm, **k: pcm)
+    monkeypatch.setattr(jarvis_voice, "transcribe", lambda wav: "what is two plus two")
+    monkeypatch.setattr(jarvis_voice, "synthesize", lambda s, v: b"MP3:" + s.encode())
+    monkeypatch.setattr(jarvis_web_api, "stream_chat", _fake_stream_chat)
+
+    client = TestClient(jarvis_web_api.app)
+    with client.websocket_connect("/api/voice") as ws:
+        ws.send_text(_json.dumps({"model": "auto", "voice": "v"}))
+        ws.send_bytes(b"WAKE")
+        assert ws.receive_json() == {"type": "wake"}
+        ws.send_bytes(b"END")
+        assert ws.receive_json() == {"type": "transcript", "text": "what is two plus two"}
+        assert ws.receive_json()["type"] == "rung"
+        assert ws.receive_json() == {"type": "chunk", "content": "Hi. Bye."}
+        assert ws.receive_json() == {"type": "answer", "content": "Hi. Bye."}
+        assert ws.receive_json() == {"type": "speak_begin", "seq": 0}
+        assert ws.receive_bytes() == b"MP3:Hi."
+        assert ws.receive_json() == {"type": "speak_end", "seq": 0}
+        assert ws.receive_json() == {"type": "speak_begin", "seq": 1}
+        assert ws.receive_bytes() == b"MP3:Bye."
+        assert ws.receive_json() == {"type": "speak_end", "seq": 1}

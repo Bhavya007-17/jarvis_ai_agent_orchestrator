@@ -117,6 +117,106 @@ async def speak_answer(send_json, send_bytes, answer, voice, cancel_event):
         await send_json({"type": "speak_end", "seq": i})
 
 
+@app.websocket("/api/voice")
+async def voice_ws(websocket: WebSocket) -> None:
+    """Always-on wake-word voice loop (Phase 6). See spec §4 for the protocol."""
+    await websocket.accept()
+    try:
+        cfg = json.loads(await websocket.receive_text())
+    except (json.JSONDecodeError, WebSocketDisconnect):
+        await websocket.close()
+        return
+    model = (cfg or {}).get("model", "auto")
+    voice = (cfg or {}).get("voice") or os.environ.get("TTS_VOICE", "en-US-GuyNeural")
+    idle_timeout = float(os.environ.get("CONVO_IDLE_TIMEOUT", "20"))
+
+    wake = jarvis_wake.WakeWord()
+    seg = jarvis_wake.Segmenter()
+    cancel_event = asyncio.Event()
+    frame_q: asyncio.Queue = asyncio.Queue()
+
+    async def receiver():
+        try:
+            while True:
+                msg = await websocket.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    break
+                if msg.get("bytes") is not None:
+                    await frame_q.put(("audio", msg["bytes"]))
+                elif msg.get("text") is not None:
+                    try:
+                        ctrl = json.loads(msg["text"])
+                    except json.JSONDecodeError:
+                        continue
+                    if ctrl.get("type") == "cancel":
+                        cancel_event.set()
+        finally:
+            await frame_q.put(("close", b""))
+
+    recv_task = asyncio.create_task(receiver())
+    loop = asyncio.get_event_loop()
+    state = "sleeping"
+    last_voice = loop.time()
+    try:
+        while True:
+            try:
+                kind, payload = await asyncio.wait_for(frame_q.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                if state == "active" and (loop.time() - last_voice) > idle_timeout:
+                    state = "sleeping"
+                    seg.reset()
+                    await websocket.send_json({"type": "sleep"})
+                continue
+            if kind == "close":
+                break
+            if kind != "audio":
+                continue
+            frame = payload
+
+            if state == "sleeping":
+                if wake.triggered(frame):
+                    state = "active"
+                    seg.reset()
+                    last_voice = loop.time()
+                    await websocket.send_json({"type": "wake"})
+                continue
+
+            # active: segment into utterances
+            utt = seg.feed(frame)
+            if seg.in_speech:
+                last_voice = loop.time()
+            if utt is None:
+                continue
+
+            text = await asyncio.to_thread(jarvis_voice.transcribe, jarvis_voice.pcm_to_wav(utt))
+            if not text.strip():
+                continue
+            await websocket.send_json({"type": "transcript", "text": text})
+            last_voice = loop.time()
+
+            cancel_event.clear()
+            answer = ""
+            async for fr in stream_chat(text, model):
+                if fr["type"] == "chunk":
+                    answer += fr.get("content", "")
+                    await websocket.send_json(fr)
+                elif fr["type"] == "rung":
+                    await websocket.send_json(fr)
+                elif fr["type"] == "done":
+                    answer = fr.get("content", answer)
+                elif fr["type"] == "error":
+                    await websocket.send_json(fr)
+            await websocket.send_json({"type": "answer", "content": answer})
+
+            await speak_answer(websocket.send_json, websocket.send_bytes,
+                               answer, voice, cancel_event)
+            last_voice = loop.time()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        recv_task.cancel()
+
+
 @app.websocket("/api/chat")
 async def chat_ws(websocket: WebSocket) -> None:
     await websocket.accept()
