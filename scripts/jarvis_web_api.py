@@ -19,6 +19,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 import jarvis_router  # Phase-1 router (classify / build_ladder / complete_with_fallback)
+import jarvis_council  # Phase-4 multi-model planning council
+import jarvis_memory   # Phase-3 personal_facts + session
+from jarvis_memory import FactsStore
 from openjarvis.core.types import Message, Role
 from openjarvis.engine.litellm import LiteLLMEngine
 
@@ -110,3 +113,177 @@ async def chat_ws(websocket: WebSocket) -> None:
                 await websocket.send_json(frame)
     except WebSocketDisconnect:
         return
+
+
+# ---------------------------------------------------------------------------
+# Council (Phase 4) — stream the multi-model planning council live over WS.
+# Voices run in a worker thread and emit frames into a thread-safe queue.
+# ---------------------------------------------------------------------------
+@app.websocket("/api/council")
+async def council_ws(websocket: WebSocket) -> None:
+    await websocket.accept()
+    try:
+        data = json.loads(await websocket.receive_text())
+    except json.JSONDecodeError:
+        await websocket.send_json({"type": "error", "detail": "Invalid JSON"})
+        return
+    except WebSocketDisconnect:
+        return
+    task = (data or {}).get("task", "").strip()
+    if not task:
+        await websocket.send_json({"type": "error", "detail": "Missing 'task'"})
+        return
+    execute = bool((data or {}).get("execute", False))
+    max_tokens = int((data or {}).get("max_tokens", 400))
+
+    # Council voices each spin a nested asyncio.run internally, so we bridge with
+    # a plain thread-safe queue (no cross-loop call_soon_threadsafe, which drops
+    # frames emitted from inside the nested loop). The WS coroutine blocks on
+    # queue.get in the default executor so the event loop stays free.
+    import queue as _queue
+    import threading
+
+    q: "_queue.Queue" = _queue.Queue()
+    sentinel = object()
+
+    def emit(frame: dict) -> None:
+        q.put(frame)
+
+    def run() -> None:
+        try:
+            jarvis_council.run_council(task, stream=True, execute=execute,
+                                       max_tokens=max_tokens, emit=emit)
+        except Exception as exc:  # noqa: BLE001 - surface council failure as a frame
+            q.put({"type": "error", "detail": str(exc)})
+        finally:
+            q.put(sentinel)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    try:
+        while True:
+            frame = await asyncio.to_thread(q.get)
+            if frame is sentinel:
+                break
+            await websocket.send_json(frame)
+    except WebSocketDisconnect:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Memory (Phase 3) — personal_facts CRUD + session, via jarvis_memory.
+# ---------------------------------------------------------------------------
+@app.get("/api/memory/facts")
+def memory_facts() -> dict:
+    return {"facts": FactsStore().load(), "categories": list(jarvis_memory.VALID_CATEGORIES)}
+
+
+@app.post("/api/memory/facts")
+async def memory_remember(payload: dict) -> dict:
+    key = (payload or {}).get("key", "").strip()
+    value = (payload or {}).get("value", "").strip()
+    category = (payload or {}).get("category", "notes")
+    if not key or not value:
+        return {"ok": False, "message": "key and value are required"}
+    msg = FactsStore().remember(key, value, category)
+    return {"ok": True, "message": msg, "facts": FactsStore().load()}
+
+
+@app.delete("/api/memory/facts")
+def memory_forget(key: str, category: str = "notes") -> dict:
+    msg = FactsStore().forget(key, category)
+    return {"ok": True, "message": msg, "facts": FactsStore().load()}
+
+
+@app.get("/api/memory/session")
+def memory_session(user: str = "default", limit: int = 10) -> dict:
+    return {"text": jarvis_memory.show_session(user, limit)}
+
+
+# ---------------------------------------------------------------------------
+# Routing map (Phase 1) — task->model map + ladders for the Graph tab.
+# ---------------------------------------------------------------------------
+@app.get("/api/routing")
+def routing() -> dict:
+    ladders = {tt: [{"label": l, "model": m} for l, m in jarvis_router.build_ladder(tt)]
+               for tt in ("reasoning", "code", "general")}
+    return {"task_map": jarvis_router.task_model_map(), "ladders": ladders,
+            "graph_url": os.environ.get("CBM_GRAPH_URL", "http://localhost:9749")}
+
+
+# ---------------------------------------------------------------------------
+# Tools / MCP (Phase 2) — list configured servers, add one, discover tools.
+# ---------------------------------------------------------------------------
+def _config_path():
+    from openjarvis.core.paths import get_config_dir
+    return get_config_dir() / "config.toml"
+
+
+def _load_mcp_servers() -> list:
+    import tomllib
+    p = _config_path()
+    if not p.exists():
+        return []
+    try:
+        cfg = tomllib.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - malformed config -> empty list
+        return []
+    raw = cfg.get("tools", {}).get("mcp", {}).get("servers", "[]")
+    try:
+        return json.loads(raw) if isinstance(raw, str) else (raw or [])
+    except json.JSONDecodeError:
+        return []
+
+
+def _write_mcp_servers(servers: list) -> None:
+    import re
+    p = _config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    line = f"servers = '{json.dumps(servers)}'"
+    text = p.read_text(encoding="utf-8") if p.exists() else ""
+    if "[tools.mcp]" in text and re.search(r"servers = '.*'", text):
+        text = re.sub(r"servers = '.*'", lambda _m: line, text)  # literal repl (keeps backslashes)
+    else:
+        new_section = "\n\n[tools.mcp]\nenabled = true\n" + line + "\n"
+        text = (text.rstrip() + new_section).lstrip()
+    p.write_text(text, encoding="utf-8")
+
+
+@app.get("/api/mcp/servers")
+def mcp_servers() -> dict:
+    return {"servers": _load_mcp_servers()}
+
+
+@app.post("/api/mcp/servers")
+async def mcp_add_server(payload: dict) -> dict:
+    name = (payload or {}).get("name", "").strip()
+    command = (payload or {}).get("command", "").strip()
+    args = (payload or {}).get("args", [])
+    if not name or not command:
+        return {"ok": False, "message": "name and command are required"}
+    if not isinstance(args, list):
+        args = [str(args)]
+    servers = [s for s in _load_mcp_servers() if s.get("name") != name]
+    servers.append({"name": name, "command": command, "args": args})
+    _write_mcp_servers(servers)
+    return {"ok": True, "message": f"Added MCP server '{name}'", "servers": servers}
+
+
+@app.get("/api/mcp/tools")
+def mcp_tools() -> dict:
+    try:
+        from openjarvis.core.config import load_config
+        from openjarvis.mcp.loader import load_mcp_tools_from_config
+        cfg = load_config()
+        tools, clients = load_mcp_tools_from_config(cfg.tools.mcp)
+        try:
+            names = sorted(t.spec.name for t in tools)
+        finally:
+            for c in clients:
+                try:
+                    c.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        return {"ok": True, "tools": names}
+    except Exception as exc:  # noqa: BLE001 - discovery is best-effort (spawns servers)
+        return {"ok": False, "tools": [], "detail": str(exc)}

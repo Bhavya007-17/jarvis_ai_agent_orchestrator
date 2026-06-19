@@ -71,3 +71,59 @@ def test_chat_ws_rejects_invalid_json():
         f = ws.receive_json()
         assert f["type"] == "error"
         assert "JSON" in f["detail"]
+
+
+def test_routing_returns_map_and_ladders(monkeypatch):
+    monkeypatch.setattr(jarvis_web_api.jarvis_router, "task_model_map",
+                        lambda: {"reasoning": "r", "code": "c", "general": "g"})
+    monkeypatch.setattr(jarvis_web_api.jarvis_router, "build_ladder",
+                        lambda tt: [("NIM-A", f"nvidia_nim/{tt}"), ("local", "ollama/x")])
+    body = client.get("/api/routing").json()
+    assert body["task_map"]["code"] == "c"
+    assert body["ladders"]["reasoning"][0] == {"label": "NIM-A", "model": "nvidia_nim/reasoning"}
+    assert body["graph_url"].startswith("http")
+
+
+def test_memory_facts_get_and_post(monkeypatch):
+    class _FakeStore:
+        _data = {"identity": {"name": {"value": "Bhavya", "updated": "2026-06-19"}}}
+        def load(self): return self._data
+        def remember(self, k, v, c): return f"Remembered: {c}/{k} = {v}"
+    monkeypatch.setattr(jarvis_web_api, "FactsStore", _FakeStore)
+    g = client.get("/api/memory/facts").json()
+    assert g["facts"]["identity"]["name"]["value"] == "Bhavya"
+    assert "identity" in g["categories"]
+    p = client.post("/api/memory/facts", json={"key": "city", "value": "Blacksburg", "category": "identity"}).json()
+    assert p["ok"] and "Remembered" in p["message"]
+
+
+def test_memory_facts_post_requires_fields():
+    r = client.post("/api/memory/facts", json={"key": "", "value": ""}).json()
+    assert r["ok"] is False
+
+
+def test_mcp_servers_list_and_add(monkeypatch):
+    store = {"servers": [{"name": "codebase-memory", "command": "cbm", "args": []}]}
+    monkeypatch.setattr(jarvis_web_api, "_load_mcp_servers", lambda: list(store["servers"]))
+    monkeypatch.setattr(jarvis_web_api, "_write_mcp_servers", lambda s: store.update(servers=s))
+    assert client.get("/api/mcp/servers").json()["servers"][0]["name"] == "codebase-memory"
+    add = client.post("/api/mcp/servers", json={"name": "extra", "command": "node", "args": ["x.js"]}).json()
+    assert add["ok"] and any(s["name"] == "extra" for s in add["servers"])
+
+
+def test_council_ws_streams_emitted_frames(monkeypatch):
+    def fake_run_council(task, *, stream, execute, max_tokens, emit):
+        emit({"type": "voice_start", "label": "PROPOSAL 1 — Pragmatist", "model": "m"})
+        emit({"type": "voice_chunk", "label": "PROPOSAL 1 — Pragmatist", "content": "step"})
+        emit({"type": "voice_end", "label": "PROPOSAL 1 — Pragmatist", "content": "step"})
+        emit({"type": "council_done", "voices": ["m"], "executor": None})
+    monkeypatch.setattr(jarvis_web_api.jarvis_council, "run_council", fake_run_council)
+    with client.websocket_connect("/api/council") as ws:
+        ws.send_json({"task": "design a cache"})
+        frames = []
+        while True:
+            f = ws.receive_json()
+            frames.append(f)
+            if f["type"] == "council_done":
+                break
+    assert [f["type"] for f in frames] == ["voice_start", "voice_chunk", "voice_end", "council_done"]
