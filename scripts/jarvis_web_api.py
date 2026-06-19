@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))  # import sibling scripts
@@ -241,12 +242,35 @@ def _write_mcp_servers(servers: list) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     line = f"servers = '{json.dumps(servers)}'"
     text = p.read_text(encoding="utf-8") if p.exists() else ""
-    if "[tools.mcp]" in text and re.search(r"servers = '.*'", text):
-        text = re.sub(r"servers = '.*'", lambda _m: line, text)  # literal repl (keeps backslashes)
+    if "[tools.mcp]" in text and re.search(r"servers = '[^']*'", text):
+        text = re.sub(r"servers = '[^']*'", lambda _m: line, text)  # literal repl (keeps backslashes)
     else:
         new_section = "\n\n[tools.mcp]\nenabled = true\n" + line + "\n"
         text = (text.rstrip() + new_section).lstrip()
     p.write_text(text, encoding="utf-8")
+
+
+_MCP_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_BLOCKED_COMMANDS = {"sh", "bash", "zsh", "cmd", "cmd.exe", "powershell",
+                     "powershell.exe", "pwsh", "pwsh.exe"}
+
+
+def _validate_mcp_server(name: str, command: str, args: list) -> str | None:
+    """Reject registrations that could turn the (subprocess-spawning) MCP
+    loader into an RCE vector. Returns an error message, or None if valid."""
+    if not _MCP_NAME_RE.match(name):
+        return "name must be 1-64 chars of letters, digits, dot, dash, underscore"
+    if "'" in name or "'" in command:
+        return "single quotes are not allowed"
+    base = os.path.basename(command).lower()
+    if base in _BLOCKED_COMMANDS:
+        return f"command '{base}' is blocked (no shell interpreters)"
+    for a in args:
+        if not isinstance(a, str):
+            return "args must all be strings"
+        if "'" in a:
+            return "single quotes are not allowed in args"
+    return None
 
 
 @app.get("/api/mcp/servers")
@@ -263,6 +287,9 @@ async def mcp_add_server(payload: dict) -> dict:
         return {"ok": False, "message": "name and command are required"}
     if not isinstance(args, list):
         args = [str(args)]
+    err = _validate_mcp_server(name, command, args)
+    if err:
+        return {"ok": False, "message": err}
     servers = [s for s in _load_mcp_servers() if s.get("name") != name]
     servers.append({"name": name, "command": command, "args": args})
     _write_mcp_servers(servers)

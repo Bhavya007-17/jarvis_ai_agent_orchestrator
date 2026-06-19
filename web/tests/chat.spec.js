@@ -44,6 +44,6 @@ test('memory tab shows personal facts and a remember control', async ({ page }) 
 test('tools tab lists MCP servers and an add control', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Tools' }).click()
-  await expect(page.getByText(/MCP servers/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: /MCP servers/i })).toBeVisible()
   await expect(page.getByRole('button', { name: /Add server/i })).toBeVisible()
 })

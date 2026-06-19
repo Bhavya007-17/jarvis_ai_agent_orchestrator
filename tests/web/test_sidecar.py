@@ -127,3 +127,14 @@ def test_council_ws_streams_emitted_frames(monkeypatch):
             if f["type"] == "council_done":
                 break
     assert [f["type"] for f in frames] == ["voice_start", "voice_chunk", "voice_end", "council_done"]
+
+
+def test_mcp_add_server_rejects_shell_and_quotes(monkeypatch):
+    monkeypatch.setattr(jarvis_web_api, "_load_mcp_servers", lambda: [])
+    monkeypatch.setattr(jarvis_web_api, "_write_mcp_servers", lambda s: None)
+    assert client.post("/api/mcp/servers", json={"name": "x", "command": "bash"}).json()["ok"] is False
+    assert client.post("/api/mcp/servers", json={"name": "x", "command": "powershell.exe"}).json()["ok"] is False
+    assert client.post("/api/mcp/servers", json={"name": "bad name!", "command": "node"}).json()["ok"] is False
+    assert client.post("/api/mcp/servers", json={"name": "ok", "command": "node", "args": ["a'b"]}).json()["ok"] is False
+    good = client.post("/api/mcp/servers", json={"name": "good-one", "command": "node", "args": ["x.js"]}).json()
+    assert good["ok"] is True
