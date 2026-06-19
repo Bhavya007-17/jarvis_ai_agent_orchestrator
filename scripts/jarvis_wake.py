@@ -27,3 +27,67 @@ class WakeWord:
 
     def triggered(self, frame: bytes) -> bool:
         return self.process(frame) >= self.threshold
+
+
+class Segmenter:
+    """Chops a 16kHz int16 PCM stream into utterances via VAD.
+
+    Uses webrtcvad when available; otherwise an RMS energy gate. feed() accepts
+    arbitrary-length frames, internally slicing to fixed frame_ms windows.
+    Returns the utterance PCM when speech is followed by silence_ms of silence.
+    """
+
+    def __init__(self, rate: int = 16000, frame_ms: int = 20, silence_ms: int = 700,
+                 aggressiveness: int = 2, energy_threshold: int = 500):
+        self.rate = rate
+        self.frame_bytes = int(rate * frame_ms / 1000) * 2  # 16-bit mono
+        self.silence_frames = max(1, silence_ms // frame_ms)
+        self.energy_threshold = energy_threshold
+        self._buf = bytearray()
+        self._utt = bytearray()
+        self._in_speech = False
+        self._silence_run = 0
+        try:
+            import webrtcvad
+            self._vad = webrtcvad.Vad(aggressiveness)
+        except Exception:  # noqa: BLE001 - missing/incompatible wheel -> energy fallback
+            self._vad = None
+
+    @property
+    def in_speech(self) -> bool:
+        return self._in_speech
+
+    def _is_speech(self, fr: bytes) -> bool:
+        if self._vad is not None:
+            try:
+                return self._vad.is_speech(fr, self.rate)
+            except Exception:  # noqa: BLE001 - bad frame length etc. -> energy
+                pass
+        import audioop
+        return audioop.rms(fr, 2) >= self.energy_threshold
+
+    def feed(self, frame: bytes):
+        self._buf.extend(frame)
+        completed = None
+        while len(self._buf) >= self.frame_bytes:
+            fr = bytes(self._buf[:self.frame_bytes])
+            del self._buf[:self.frame_bytes]
+            if self._is_speech(fr):
+                self._in_speech = True
+                self._silence_run = 0
+                self._utt.extend(fr)
+            elif self._in_speech:
+                self._utt.extend(fr)
+                self._silence_run += 1
+                if self._silence_run >= self.silence_frames:
+                    completed = bytes(self._utt)
+                    self._utt = bytearray()
+                    self._in_speech = False
+                    self._silence_run = 0
+        return completed
+
+    def reset(self) -> None:
+        self._buf.clear()
+        self._utt = bytearray()
+        self._in_speech = False
+        self._silence_run = 0
