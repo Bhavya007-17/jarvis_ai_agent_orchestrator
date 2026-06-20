@@ -58,7 +58,14 @@ def _ladder_for(message: str, model_choice: str) -> tuple[str, list[tuple[str, s
     task_type = jarvis_router.classify(message)
     base = jarvis_router.build_ladder(task_type)
     if model_choice and model_choice != "auto":
-        full = model_choice if "/" in model_choice else f"{jarvis_router.NIM_PROVIDER}/{model_choice}"
+        # The Settings dropdown offers bare NIM ids (e.g. "meta/llama-3.3-70b"),
+        # which contain "/" yet still need the LiteLLM "nvidia_nim/" provider
+        # prefix.  Only ids already carrying a known provider prefix are left
+        # as-is — otherwise the chosen rung 500s ("LLM Provider NOT provided")
+        # and the user's selection is silently dropped to the fallback model.
+        known = ("nvidia_nim/", "gemini/", "ollama/")
+        full = model_choice if model_choice.startswith(known) \
+            else f"{jarvis_router.NIM_PROVIDER}/{model_choice}"
         rest = [r for r in base if r[1] != full]
         return task_type, [("chosen", full), *rest]
     return task_type, base
@@ -121,10 +128,24 @@ async def speak_answer(send_json, send_bytes, answer, voice, cancel_event):
 async def voice_ws(websocket: WebSocket) -> None:
     """Always-on wake-word voice loop (Phase 6). See spec §4 for the protocol."""
     await websocket.accept()
+    # First client message should be the JSON config, but a mic frame can race
+    # ahead of it (the audio worklet may flush the instant the socket opens).
+    # Skip any leading binary frames until the text config arrives, rather than
+    # crashing on receive_text() and dropping the socket — see voiceSocket.js.
+    cfg: dict = {}
     try:
-        cfg = json.loads(await websocket.receive_text())
-    except (json.JSONDecodeError, WebSocketDisconnect):
-        await websocket.close()
+        while True:
+            msg = await websocket.receive()
+            if msg.get("type") == "websocket.disconnect":
+                return
+            if msg.get("text") is not None:
+                try:
+                    cfg = json.loads(msg["text"]) or {}
+                except json.JSONDecodeError:
+                    cfg = {}
+                break
+            # leading binary frame (pre-handshake audio) — ignore and keep waiting
+    except (WebSocketDisconnect, RuntimeError):
         return
     model = (cfg or {}).get("model", "auto")
     voice = (cfg or {}).get("voice") or os.environ.get("TTS_VOICE", "en-US-GuyNeural")

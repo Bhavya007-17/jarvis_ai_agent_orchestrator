@@ -55,11 +55,26 @@ def _load_keys() -> dict[str, str]:
         "GOOGLE_API_KEY",
         "OPENROUTER_API_KEY",
         "MINIMAX_API_KEY",
+        "NVIDIA_API_KEY",
     ):
         val = os.environ.get(name)
         if val:
             keys[name] = val
     return keys
+
+
+def _nim_models() -> set[str]:
+    """Configured NVIDIA NIM model ids from env (Jarvis routing table).
+
+    NIM ids (e.g. ``meta/llama-3.3-70b-instruct``) contain a ``/`` and would
+    otherwise be misrouted to OpenRouter, so they must be matched explicitly
+    before the generic ``"/" -> openrouter`` rule below.
+    """
+    names = (
+        "NIM_MODEL_REASONING", "NIM_MODEL_CODE", "NIM_MODEL_GENERAL",
+        "NIM_COUNCIL_1", "NIM_COUNCIL_2", "NIM_COUNCIL_3", "NIM_CRITIC",
+    )
+    return {v for n in names if (v := os.environ.get(n, "").strip())}
 
 
 def get_provider(model: str) -> str | None:
@@ -72,6 +87,10 @@ def get_provider(model: str) -> str | None:
         return "google"
     if any(model.startswith(p) for p in _MINIMAX_PREFIXES):
         return "minimax"
+    # NVIDIA NIM: explicit prefix or a configured NIM model id (mirrors the
+    # MiniMax provider block; matched before the openrouter "/" heuristic).
+    if model.startswith("nvidia_nim/") or model in _nim_models():
+        return "nvidia"
     if any(model.startswith(org) for org in _LOCAL_HF_ORGS):
         return None  # local model, never route to cloud
     if "/" in model:  # openrouter format: "meta-llama/llama-3-8b"
@@ -392,6 +411,24 @@ async def stream_cloud(
             max_tokens,
             base_url="https://api.minimax.io/v1",
             api_key_name="MINIMAX_API_KEY",
+        ):
+            yield token
+
+    elif provider == "nvidia":
+        keys = _load_keys()
+        api_key = keys.get("NVIDIA_API_KEY", "")
+        if not api_key:
+            raise ValueError("NVIDIA_API_KEY not set — add it in the Cloud Models tab")
+        # NIM's OpenAI-compatible endpoint wants the bare id; strip a leading
+        # "nvidia_nim/" provider prefix if the engine layer added one.
+        nim_model = model.split("/", 1)[1] if model.startswith("nvidia_nim/") else model
+        async for token in _stream_openai(
+            nim_model,
+            messages,
+            temperature,
+            max_tokens,
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key_name="NVIDIA_API_KEY",
         ):
             yield token
 

@@ -111,6 +111,24 @@ def test_voice_ws_wake_transcribe_answer_speak(monkeypatch):
         assert ws.receive_json() == {"type": "turn_end"}
 
 
+def test_voice_ws_tolerates_binary_frame_before_config(monkeypatch):
+    """A mic frame can race ahead of the config text (the worklet flushes the
+    instant the socket opens). The server must skip leading binary frames and
+    still complete the handshake instead of dropping the socket."""
+    monkeypatch.setattr(jarvis_wake, "WakeWord", _FakeWake)
+    monkeypatch.setattr(jarvis_wake, "Segmenter", _FakeSeg)
+    monkeypatch.setattr(jarvis_voice, "pcm_to_wav", lambda pcm, **k: pcm)
+    monkeypatch.setattr(jarvis_voice, "transcribe", lambda wav: "after race")
+    monkeypatch.setattr(jarvis_web_api, "stream_chat", _fake_stream_chat)
+
+    client = TestClient(jarvis_web_api.app)
+    with client.websocket_connect("/api/voice") as ws:
+        ws.send_bytes(b"\x00\x00")            # stray pre-handshake audio frame
+        ws.send_text(_json.dumps({"model": "auto", "voice": "v"}))
+        ws.send_bytes(b"WAKE")                 # socket still alive -> wake works
+        assert ws.receive_json() == {"type": "wake"}
+
+
 async def _fake_stream_chat_empty(message, model, max_tokens=512):
     yield {"type": "rung", "rung": "chosen", "model": "nim"}
     yield {"type": "chunk", "content": "   "}

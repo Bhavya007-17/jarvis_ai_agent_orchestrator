@@ -9,11 +9,40 @@ export async function startVoice({ model, voice, onFrame, onAudio, onLevel, onEr
   const ws = new WebSocket(WS_URL)
   ws.binaryType = 'arraybuffer'
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
-  })
-  const ctx = new AudioContext({ sampleRate: 16000 })
-  await ctx.audioWorklet.addModule('/pcm-worklet.js')
+  // Register the socket handlers SYNCHRONOUSLY, before the awaits below.
+  // getUserMedia (mic-permission prompt) and addModule (first-time worklet
+  // compile) can take seconds, while the localhost WS handshake completes in
+  // ~1 ms.  If we assigned onopen after those awaits, the 'open' event would
+  // have already fired and the config frame would never be sent — the server
+  // would then crash on the first binary audio frame and the socket would die
+  // silently.  So wire everything up now and send the config the moment it opens.
+  let intentionalClose = false
+  ws.onopen = () => ws.send(JSON.stringify({ model, voice }))
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      try { onFrame(JSON.parse(e.data)) } catch { /* ignore malformed frame */ }
+    } else {
+      onAudio(e.data)
+    }
+  }
+  ws.onerror = () => onError && onError('voice socket error')
+  ws.onclose = () => { if (!intentionalClose) onError && onError('voice socket closed') }
+
+  let stream
+  let ctx
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+    })
+    ctx = new AudioContext({ sampleRate: 16000 })
+    await ctx.audioWorklet.addModule('/pcm-worklet.js')
+  } catch (e) {
+    intentionalClose = true // mic/worklet failed — close quietly, surface via throw
+    try { ws.close() } catch { /* noop */ }
+    if (stream) stream.getTracks().forEach((t) => t.stop())
+    throw e
+  }
+
   const src = ctx.createMediaStreamSource(stream)
   const node = new AudioWorkletNode(ctx, 'pcm-worklet')
 
@@ -39,16 +68,6 @@ export async function startVoice({ model, voice, onFrame, onAudio, onLevel, onEr
   }
   src.connect(node)
 
-  ws.onopen = () => ws.send(JSON.stringify({ model, voice }))
-  ws.onmessage = (e) => {
-    if (typeof e.data === 'string') {
-      try { onFrame(JSON.parse(e.data)) } catch { /* ignore malformed frame */ }
-    } else {
-      onAudio(e.data)
-    }
-  }
-  ws.onerror = () => onError && onError()
-
   const teardown = () => {
     try { src.disconnect() } catch { /* noop */ }
     try { node.disconnect() } catch { /* noop */ }
@@ -56,7 +75,7 @@ export async function startVoice({ model, voice, onFrame, onAudio, onLevel, onEr
     stream.getTracks().forEach((t) => t.stop())
   }
   return {
-    stop() { try { ws.close() } catch { /* noop */ } teardown() },
+    stop() { intentionalClose = true; try { ws.close() } catch { /* noop */ } teardown() },
     cancel() { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cancel' })) },
     ws,
   }

@@ -130,3 +130,21 @@ learning.db
 minion_logs/
 *.oj-debug.json
 oj-debug.*.json
+
+# --- Jarvis additions ---
+_vendor/
+.env
+.venv/
+__pycache__/
+node_modules/
+web/node_modules/
+*.log
+
+# Playwright MCP scratch (page snapshots, console logs, ad-hoc screenshots)
+.playwright-mcp/
+
+# Build-time prompt / spec docs — not part of the published product
+jarvis-cursor-prompts.md
+claude-code-build-prompt.md
+jarvis-orchestrator-spec.md
+
