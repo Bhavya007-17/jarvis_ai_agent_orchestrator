@@ -48,6 +48,12 @@ export default function VoiceTab({ model = 'auto' }) {
     else if (f.type === 'sleep') { setStatus('sleeping'); stopPlayback() }
     else if (f.type === 'transcript') { append('you', f.text); setStatus('thinking') }
     else if (f.type === 'answer') { append('jarvis', f.content) }
+    else if (f.type === 'turn_end') {
+      // Explicit turn-completion signal from server. If no audio is playing or
+      // queued, flip back to listening immediately; otherwise let playNext()'s
+      // 'ended' chain handle it once the queue empties.
+      if (!playingRef.current && queueRef.current.length === 0) setStatus('listening')
+    }
     else if (f.type === 'error') { setError(f.detail || 'error') }
   }
 

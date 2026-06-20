@@ -133,7 +133,7 @@ async def voice_ws(websocket: WebSocket) -> None:
     wake = jarvis_wake.WakeWord()
     seg = jarvis_wake.Segmenter()
     cancel_event = asyncio.Event()
-    frame_q: asyncio.Queue = asyncio.Queue()
+    frame_q: asyncio.Queue = asyncio.Queue(maxsize=256)
 
     async def receiver():
         try:
@@ -142,7 +142,14 @@ async def voice_ws(websocket: WebSocket) -> None:
                 if msg.get("type") == "websocket.disconnect":
                     break
                 if msg.get("bytes") is not None:
-                    await frame_q.put(("audio", msg["bytes"]))
+                    try:
+                        frame_q.put_nowait(("audio", msg["bytes"]))
+                    except asyncio.QueueFull:
+                        try:
+                            frame_q.get_nowait()  # drop oldest audio frame
+                        except asyncio.QueueEmpty:
+                            pass
+                        frame_q.put_nowait(("audio", msg["bytes"]))
                 elif msg.get("text") is not None:
                     try:
                         ctrl = json.loads(msg["text"])
@@ -151,10 +158,10 @@ async def voice_ws(websocket: WebSocket) -> None:
                     if ctrl.get("type") == "cancel":
                         cancel_event.set()
         finally:
-            await frame_q.put(("close", b""))
+            await frame_q.put(("close", b""))  # sentinel must always get through
 
     recv_task = asyncio.create_task(receiver())
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     state = "sleeping"
     last_voice = loop.time()
     try:
@@ -210,7 +217,23 @@ async def voice_ws(websocket: WebSocket) -> None:
 
             await speak_answer(websocket.send_json, websocket.send_bytes,
                                answer, voice, cancel_event)
+            # Drain stale audio that buffered during the turn so the next
+            # utterance starts fresh.  If a "close" sentinel is encountered
+            # here it means the client disconnected during the turn — stop.
+            _drain_found_close = False
+            while not frame_q.empty():
+                try:
+                    _kind, _payload = frame_q.get_nowait()
+                    if _kind == "close":
+                        _drain_found_close = True
+                        break
+                except asyncio.QueueEmpty:
+                    break
+            seg.reset()
+            await websocket.send_json({"type": "turn_end"})
             last_voice = loop.time()
+            if _drain_found_close:
+                break
     except WebSocketDisconnect:
         pass
     finally:

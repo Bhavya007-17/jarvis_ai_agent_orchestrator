@@ -17,7 +17,12 @@ class WakeWord:
     def _ensure(self):
         if self._model is None:
             from openwakeword.model import Model
-            self._model = Model(wakeword_models=[self.model_name], inference_framework="onnx")
+            try:
+                self._model = Model(wakeword_models=[self.model_name], inference_framework="onnx")
+            except Exception:  # noqa: BLE001 - model files missing on fresh install
+                import openwakeword.utils
+                openwakeword.utils.download_models()
+                self._model = Model(wakeword_models=[self.model_name], inference_framework="onnx")
         return self._model
 
     def process(self, frame: bytes) -> float:
@@ -63,7 +68,7 @@ class Segmenter:
                 return self._vad.is_speech(fr, self.rate)
             except Exception:  # noqa: BLE001 - bad frame length etc. -> energy
                 pass
-        import audioop
+        import audioop  # energy-VAD fallback; Python 3.13+ needs audioop-lts or pure-Python RMS (project targets 3.11/3.12)
         return audioop.rms(fr, 2) >= self.energy_threshold
 
     def feed(self, frame: bytes):
