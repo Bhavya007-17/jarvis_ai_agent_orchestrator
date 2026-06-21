@@ -219,7 +219,7 @@ flowchart LR
 **Models:** NVIDIA NIM (Llama-3.3-70B, Qwen3.5-397B, Nemotron-49B, DeepSeek-V4) · Google Gemini Flash · Ollama (qwen2.5:7b)
 **Voice:** openWakeWord · faster-whisper · Edge-TTS · webrtcvad · Web Audio `AudioWorklet`
 **Tools:** Model Context Protocol — Codebase-Memory MCP (code graph) · Agent-Reach (web/GitHub)
-**Frontend:** React · Vite · Tailwind CSS · lucide-react
+**Frontend:** React · Vite · Tailwind CSS · Framer Motion · lucide-react — an *ada_v2*-inspired "arc-reactor" HUD (Orbitron / Rajdhani / Share Tech Mono)
 **Tooling:** `uv` (deps) · `pytest` (24 web tests) · Playwright (browser smoke)
 
 ---

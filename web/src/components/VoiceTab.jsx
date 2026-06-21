@@ -92,29 +92,31 @@ export default function VoiceTab({ model = 'auto' }) {
 
   useEffect(() => () => { ctrlRef.current && ctrlRef.current.stop() }, [])
 
+  const live = on && status !== 'off'
   return (
     <div className="h-full flex flex-col p-6 gap-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <button
           onClick={on ? stop : start}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm ${
-            on ? 'bg-rose-600/20 text-rose-300' : 'bg-cyan-600/20 text-cyan-300'}`}>
+          className={on ? 'hud-btn-ghost px-4 py-2.5 !text-rose-300 !border-rose-500/40' : 'hud-btn px-4 py-2.5'}>
           {on ? <MicOff size={16} /> : <Mic size={16} />}
           {on ? 'Stop' : 'Start always-on'}
         </button>
-        <span className="text-sm text-slate-400">
-          Status: <span className="text-cyan-300">{status}</span>
-          {status === 'sleeping' && ' — say "Hey Jarvis"'}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`h-2.5 w-2.5 rounded-full ${live ? 'bg-core shadow-glow animate-pulse' : 'bg-[#2A3D47]'}`} />
+          <span className="tag">status</span>
+          <span className="font-hud text-sm text-core uppercase tracking-wider">{status}</span>
+          {status === 'sleeping' && <span className="tag">— say “Hey Jarvis”</span>}
+        </div>
       </div>
       {error && <div className="text-rose-400 text-sm">{error}</div>}
-      <div className="flex-1 min-h-0 overflow-auto space-y-2 rounded-lg bg-slate-900/50 p-4">
-        {log.length === 0 && <div className="text-slate-500 text-sm">
-          Start always-on, then say "Hey Jarvis" and speak. Talk over Jarvis to interrupt.
+      <div className="flex-1 min-h-0 overflow-auto space-y-2.5 rounded-xl glass p-5">
+        {log.length === 0 && <div className="text-[#5B7A8A] text-sm">
+          Start always-on, then say “Hey Jarvis” and speak. Talk over Jarvis to interrupt.
         </div>}
         {log.map((m, i) => (
-          <div key={i} className={m.role === 'you' ? 'text-slate-200' : 'text-cyan-300'}>
-            <span className="text-xs uppercase opacity-60 mr-2">{m.role}</span>{m.text}
+          <div key={i} className={m.role === 'you' ? 'text-[#DBF4FA]' : 'text-core'}>
+            <span className="tag mr-2">{m.role}</span>{m.text}
           </div>
         ))}
       </div>

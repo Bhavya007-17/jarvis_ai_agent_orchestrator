@@ -7,5 +7,5 @@ test('voice tab renders and starts always-on', async ({ page }) => {
   // Fake media (configured in playwright.config.js) auto-grants the mic so the
   // worklet/socket path starts without a real device.
   await page.getByRole('button', { name: 'Start always-on' }).click()
-  await expect(page.getByText(/Status:/)).toBeVisible()
+  await expect(page.getByText(/status/i).first()).toBeVisible()
 })

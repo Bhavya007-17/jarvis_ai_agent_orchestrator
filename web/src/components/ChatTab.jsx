@@ -34,28 +34,35 @@ export default function ChatTab({ model }) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto space-y-3 p-4">
+      <div className="flex-1 overflow-y-auto space-y-3 p-6">
+        {messages.length === 0 && (
+          <div className="h-full flex flex-col items-center justify-center text-center gap-2">
+            <div className="eyebrow">awaiting input</div>
+            <p className="text-[#5B7A8A] text-sm max-w-xs">
+              Ask anything. Your prompt is classified and routed to the best model, then tagged with the one that answered.
+            </p>
+          </div>
+        )}
         {messages.map((m, i) => (
           <div key={i} className={m.role === 'you' ? 'text-right' : 'text-left'}>
-            <div className={`inline-block px-3 py-2 rounded-2xl max-w-[80%] ${
-              m.role === 'you' ? 'bg-cyan-600/30 border border-cyan-500/40'
-                               : m.error ? 'bg-red-900/30 border border-red-600/40'
-                                         : 'bg-slate-800/70 border border-slate-700'}`}>
+            <div className={`inline-block px-4 py-2.5 rounded-2xl max-w-[80%] text-[15px] leading-relaxed ${
+              m.role === 'you' ? 'bg-core/15 border border-core/40 text-[#DBF4FA] shadow-glow-sm'
+                               : m.error ? 'bg-rose-950/40 border border-rose-600/40 text-rose-200'
+                                         : 'glass text-[#CBE7F0]'}`}>
               <span className="whitespace-pre-wrap">{m.text || '…'}</span>
-              {m.rung && <span className="block mt-1 text-[10px] text-slate-400">served by {m.rung}</span>}
+              {m.rung && <span className="block mt-1.5 tag">served by {m.rung}</span>}
             </div>
           </div>
         ))}
         <div ref={endRef} />
       </div>
-      <div className="p-4 border-t border-slate-800 flex gap-2">
+      <div className="p-4 border-t border-core/10 flex gap-2">
         <input
-          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 outline-none focus:border-cyan-500"
+          className="hud-input flex-1 px-4 py-2.5"
           placeholder="Ask Jarvis…" value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()} />
-        <button onClick={send} disabled={busy}
-          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40">
+        <button onClick={send} disabled={busy} className="hud-btn px-4 py-2.5">
           <Send size={18} />
         </button>
       </div>

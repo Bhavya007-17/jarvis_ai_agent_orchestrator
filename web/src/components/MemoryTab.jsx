@@ -26,28 +26,31 @@ export default function MemoryTab() {
   const cats = data.categories.length ? data.categories : ['identity']
   return (
     <div className="p-6 space-y-5 overflow-y-auto h-full">
-      <h2 className="text-lg text-cyan-300">Memory — personal facts</h2>
-      <div className="flex flex-wrap gap-2 items-end">
+      <div>
+        <div className="eyebrow">long-term store</div>
+        <h2 className="font-display text-lg uppercase tracking-[0.15em] text-[#DBF4FA]">Personal facts</h2>
+      </div>
+      <div className="flex flex-wrap gap-2 items-end glass rounded-xl p-4">
         <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-sm">
-          {cats.map((c) => <option key={c} value={c}>{c}</option>)}
+          className="hud-input px-2 py-2 text-sm">
+          {cats.map((c) => <option key={c} value={c} className="bg-void">{c}</option>)}
         </select>
         <input placeholder="key" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm w-32" />
+          className="hud-input px-3 py-2 text-sm w-32" />
         <input placeholder="value" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm flex-1 min-w-40" />
-        <button onClick={add} className="px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 flex items-center gap-1 text-sm"><Plus size={14} /> Remember</button>
+          className="hud-input px-3 py-2 text-sm flex-1 min-w-40" />
+        <button onClick={add} className="hud-btn px-3 py-2 text-sm"><Plus size={14} /> Remember</button>
       </div>
-      {msg && <div className="text-xs text-slate-400">{msg}</div>}
+      {msg && <div className="tag">{msg}</div>}
       <div className="space-y-4">
         {Object.entries(data.facts).map(([cat, items]) => Object.keys(items || {}).length ? (
           <div key={cat}>
-            <div className="text-sm text-slate-300 font-medium capitalize">{cat}</div>
-            <ul className="mt-1 space-y-1">
+            <div className="font-hud text-xs uppercase tracking-wider text-core/80">{cat}</div>
+            <ul className="mt-1.5 space-y-1.5">
               {Object.entries(items).map(([k, entry]) => (
-                <li key={k} className="flex items-center justify-between bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-1.5 text-sm">
-                  <span><span className="text-slate-400">{k.replace(/_/g, ' ')}:</span> {entry.value}</span>
-                  <button onClick={() => forget(k, cat)} className="text-slate-500 hover:text-red-400"><Trash2 size={14} /></button>
+                <li key={k} className="flex items-center justify-between glass rounded-lg px-3 py-2 text-sm">
+                  <span><span className="text-[#7FA3B2]">{k.replace(/_/g, ' ')}:</span> <span className="text-[#DBF4FA]">{entry.value}</span></span>
+                  <button onClick={() => forget(k, cat)} className="text-[#5B7A8A] hover:text-rose-400 transition-colors"><Trash2 size={14} /></button>
                 </li>
               ))}
             </ul>

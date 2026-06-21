@@ -30,32 +30,35 @@ export default function ToolsTab() {
 
   return (
     <div className="p-6 space-y-5 overflow-y-auto h-full">
-      <h2 className="text-lg text-cyan-300">Tools — MCP servers</h2>
-      <ul className="space-y-1">
+      <div>
+        <div className="eyebrow">model context protocol</div>
+        <h2 className="font-display text-lg uppercase tracking-[0.15em] text-[#DBF4FA]">MCP servers</h2>
+      </div>
+      <ul className="space-y-1.5">
         {servers.length ? servers.map((s) => (
-          <li key={s.name} className="bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 text-sm">
-            <span className="text-slate-200 font-medium">{s.name}</span>
-            <span className="text-slate-500 text-xs break-all"> — {s.command} {(s.args || []).join(' ')}</span>
+          <li key={s.name} className="glass rounded-lg px-3 py-2 text-sm flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_1px_rgba(52,211,153,0.6)]" />
+            <span className="text-[#DBF4FA] font-medium">{s.name}</span>
+            <span className="tag break-all"> — {s.command} {(s.args || []).join(' ')}</span>
           </li>
-        )) : <li className="text-xs text-slate-500">no MCP servers configured (run setup_config.py)</li>}
+        )) : <li className="tag">no MCP servers configured (run setup_config.py)</li>}
       </ul>
-      <div className="flex flex-wrap gap-2 items-end">
+      <div className="flex flex-wrap gap-2 items-end glass rounded-xl p-4">
         <input placeholder="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm w-32" />
+          className="hud-input px-3 py-2 text-sm w-32" />
         <input placeholder="command" value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm flex-1 min-w-40" />
+          className="hud-input px-3 py-2 text-sm flex-1 min-w-40" />
         <input placeholder="args (space-sep)" value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })}
-          className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm w-40" />
-        <button onClick={add} className="px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 flex items-center gap-1 text-sm"><Plus size={14} /> Add server</button>
+          className="hud-input px-3 py-2 text-sm w-40" />
+        <button onClick={add} className="hud-btn px-3 py-2 text-sm"><Plus size={14} /> Add server</button>
       </div>
       <div>
-        <button onClick={discover} disabled={discovering}
-          className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 flex items-center gap-1 text-sm">
+        <button onClick={discover} disabled={discovering} className="hud-btn-ghost px-3 py-2 text-sm disabled:opacity-40">
           <RefreshCw size={14} className={discovering ? 'animate-spin' : ''} /> Discover tools
         </button>
-        {tools && <ul className="mt-2 grid grid-cols-2 gap-1 text-xs text-slate-400">{tools.map((t) => <li key={t}>• {t}</li>)}</ul>}
+        {tools && <ul className="mt-3 grid grid-cols-2 gap-1.5 text-xs text-[#9FD8E4]">{tools.map((t) => <li key={t} className="font-hud">› {t}</li>)}</ul>}
       </div>
-      {msg && <div className="text-xs text-slate-400">{msg}</div>}
+      {msg && <div className="tag">{msg}</div>}
     </div>
   )
 }
