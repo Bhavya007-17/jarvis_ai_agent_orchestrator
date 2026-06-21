@@ -189,3 +189,12 @@ def test_invalid_graph_emits_error_frame():
     out = asyncio.run(jg.run_graph(graph, emit=emit, call_node=_fake_call_node()))
     assert out.get("error")
     assert any(f["type"] == "error" for f in frames)
+
+
+def test_council_parity_graph_is_flat_and_valid(monkeypatch):
+    monkeypatch.setattr(jg.jarvis_council, "council_models",
+                        lambda: ["meta/llama-3.3-70b", "qwen/qwen2.5-coder-32b"])
+    graph = jg._council_parity_graph("plan a cache")
+    assert graph["task"] == "plan a cache"
+    assert all(e["target"] == "orchestrator" for e in graph["edges"])
+    assert jg._validate_graph(graph) is None

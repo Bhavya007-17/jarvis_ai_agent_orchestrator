@@ -261,3 +261,53 @@ async def run_graph(graph: dict, *, emit=None, max_tokens: int = 400,
     if emit:
         emit({"type": "graph_done", "output": output})
     return {"output": output, "outputs": outputs, "models": models}
+
+
+# ---------------------------------------------------------------------------
+# CLI — headless smoke (build a council-parity flat graph, or load a JSON file).
+# ---------------------------------------------------------------------------
+
+
+def _council_parity_graph(task: str) -> dict:
+    """Build the flat `proposers -> orchestrator` graph (council special case)
+    from the .env NIM_COUNCIL_* models, for headless smoke testing."""
+    models = jarvis_council.council_models()[:3]
+    personas = jarvis_council.COUNCIL_PERSONAS
+    nodes, edges = [], []
+    for i, model in enumerate(models):
+        nid = f"p{i + 1}"
+        persona, lens = personas[i % len(personas)]
+        nodes.append({"id": nid, "persona": persona, "lens": lens, "model": model})
+        edges.append({"source": nid, "target": ORCH_ID})
+    nodes.append({"id": ORCH_ID, "persona": "Orchestrator"})
+    return {"task": task, "nodes": nodes, "edges": edges}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Jarvis agent graph executor")
+    parser.add_argument("task", nargs="*", help="task (when --graph is omitted)")
+    parser.add_argument("--graph", help="path to a {task,nodes,edges} JSON file")
+    parser.add_argument("--max-tokens", type=int, default=400)
+    args = parser.parse_args()
+
+    if args.graph:
+        graph = json.loads(Path(args.graph).read_text(encoding="utf-8"))
+    elif args.task:
+        graph = _council_parity_graph(" ".join(args.task))
+    else:
+        parser.error("provide a task or --graph")
+
+    def emit(frame: dict) -> None:
+        if frame["type"] == "node_start":
+            print(f"\n[{frame['node']}] ...", flush=True)
+        elif frame["type"] == "graph_done":
+            print(f"\n\n=== FINAL ===\n{frame['output']}")
+        elif frame["type"] == "error":
+            print(f"\n[graph error] {frame['detail']}", file=sys.stderr)
+
+    result = asyncio.run(run_graph(graph, emit=emit, max_tokens=args.max_tokens))
+    return 1 if result.get("error") else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
