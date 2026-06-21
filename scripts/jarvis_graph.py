@@ -157,3 +157,107 @@ def _validate_graph(graph: dict) -> str | None:
         if n["id"] != ORCH_ID and n["id"] not in reach:
             return f"node {n['id']!r} has no path to the orchestrator"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Execution — async, topological, concurrency-bounded (<=3 LLM calls in flight).
+# ---------------------------------------------------------------------------
+
+
+def _node_prompt(node: dict, task: str, upstream: list[tuple[str, str]], is_orch: bool):
+    """Build (system, user, ladder, extra_body) for one node."""
+    if is_orch:
+        directive = synthesis_directive(
+            [{"persona": p, "content": c} for p, c in upstream], "")
+        system = ("You are the council orchestrator. " + directive +
+                  " Produce ONE final plan as a numbered list of concrete steps.")
+        body = "\n\n".join(f"### From {p}\n{c}" for p, c in upstream)
+        user = f"Task: {task}\n\n{body}" if body else f"Task: {task}"
+        model_id = _reasoning_model() or _general_model()
+        return system, user, _ladder_from(_nim(model_id)), THINKING_ON
+    system = node.get("lens", "") or f"You are {node.get('persona', 'an agent')}."
+    body = "\n\n".join(f"### From {p}\n{c}" for p, c in upstream)
+    user = task if not body else f"{task}\n\nUpstream analysis to build on:\n{body}"
+    return system, user, _ladder_from(_nim(node["model"])), None
+
+
+async def _default_call_node(node, system, user, ladder, *, max_tokens, extra_body, emit):
+    """Stream the primary rung live; on any failure walk the laddered, backed-off
+    `complete_with_fallback`. Reuses jarvis_council._astream (adapting its
+    voice_chunk frame into a node_chunk frame keyed by this node's id)."""
+    nid = node["id"]
+    msgs = [Message(role=Role.SYSTEM, content=system),
+            Message(role=Role.USER, content=user)]
+    primary = ladder[0][1]
+    chunk_emit = None
+    if emit:
+        def chunk_emit(frame):  # noqa: E306 - tiny adapter
+            emit({"type": "node_chunk", "node": nid, "content": frame.get("content", "")})
+    try:
+        text = await jarvis_council._astream(
+            LiteLLMEngine(), msgs, primary, max_tokens, extra_body,
+            emit=chunk_emit, label=nid)
+        if text.strip():
+            return {"content": text, "model": primary}
+    except Exception:  # noqa: BLE001 - any stream error => ladder
+        pass
+    res = await asyncio.to_thread(
+        complete_with_fallback, msgs, "general",
+        max_tokens=max_tokens, extra_body=extra_body, ladder=ladder)
+    if emit:
+        emit({"type": "node_chunk", "node": nid, "content": res["content"]})
+    return {"content": res["content"], "model": res["model"]}
+
+
+async def run_graph(graph: dict, *, emit=None, max_tokens: int = 400,
+                    call_node=None) -> dict:
+    """Execute the agent DAG in topological order with <=3 concurrent LLM calls."""
+    err = _validate_graph(graph)
+    if err:
+        if emit:
+            emit({"type": "error", "detail": err})
+        return {"output": "", "outputs": {}, "models": {}, "error": err}
+
+    if call_node is None:
+        call_node = _default_call_node
+    task = graph["task"].strip()
+    nodes = graph["nodes"]
+    edges = graph.get("edges", [])
+    by_id = {n["id"]: n for n in nodes}
+    preds, succs = _adjacency(nodes, edges)
+    sem = asyncio.Semaphore(CONCURRENCY)
+    outputs: dict[str, str] = {}
+    models: dict[str, str] = {}
+    node_tasks: dict[str, asyncio.Task] = {}
+
+    async def run_one(nid: str) -> str:
+        if preds[nid]:
+            await asyncio.gather(*(node_tasks[p] for p in preds[nid]))
+        node = by_id[nid]
+        is_orch = nid == ORCH_ID
+        upstream = [(by_id[p].get("persona", p), outputs.get(p, ""))
+                    for p in _ordered(preds[nid], nodes)]
+        system, user, ladder, extra_body = _node_prompt(node, task, upstream, is_orch)
+        async with sem:
+            if emit:
+                emit({"type": "node_start", "node": nid})
+            res = await call_node(node, system, user, ladder,
+                                  max_tokens=max_tokens + (200 if is_orch else 0),
+                                  extra_body=extra_body, emit=emit)
+        text = res.get("content", "")
+        outputs[nid] = text
+        models[nid] = res.get("model", ladder[0][1])
+        if emit:
+            emit({"type": "node_end", "node": nid, "content": text, "model": models[nid]})
+            for tgt in _ordered(succs[nid], nodes):
+                emit({"type": "edge_flow", "source": nid, "target": tgt})
+        return text
+
+    for nid in by_id:
+        node_tasks[nid] = asyncio.create_task(run_one(nid))
+    await asyncio.gather(*node_tasks.values())
+
+    output = outputs.get(ORCH_ID, "")
+    if emit:
+        emit({"type": "graph_done", "output": output})
+    return {"output": output, "outputs": outputs, "models": models}
