@@ -653,7 +653,9 @@ def _validate_layout(layout: dict) -> str | None:
                 return f"window {mod_id!r} {coord!r} must be a number"
         if not isinstance(w.get("open"), bool):
             return f"window {mod_id!r} 'open' must be a boolean"
-        if not isinstance(w.get("z", 0), int) or isinstance(w.get("z", 0), bool):
+        if "z" not in w:
+            return f"window {mod_id!r} 'z' is required"
+        if not isinstance(w["z"], int) or isinstance(w["z"], bool):
             return f"window {mod_id!r} 'z' must be an integer"
     return None
 

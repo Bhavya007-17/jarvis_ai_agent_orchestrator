@@ -49,6 +49,12 @@ def test_layout_rejects_non_bool_open(layout_file):
     assert r["ok"] is False and "open" in r["message"]
 
 
+def test_layout_rejects_missing_z(layout_file):
+    bad = {"windows": {"chat": {"x": 1, "y": 2, "open": True}}}
+    r = client.put("/api/ui-layout", json=bad).json()
+    assert r["ok"] is False and "z" in r["message"]
+
+
 def test_layout_get_tolerates_corrupt_file(layout_file):
     layout_file.write_text("{ not json", encoding="utf-8")
     assert client.get("/api/ui-layout").json() == {"windows": {}}
