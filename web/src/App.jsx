@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { MessageSquare, Users, Network, Brain, Wrench, Settings as SettingsIcon, Mic } from 'lucide-react'
+import { MessageSquare, Users, Network, Brain, Wrench, Settings as SettingsIcon, Mic, Share2 } from 'lucide-react'
 import ReactorCore from './components/ReactorCore'
 import ChatTab from './components/ChatTab'
+import AgentsTab from './components/AgentsTab'
 import CouncilTab from './components/CouncilTab'
 import GraphTab from './components/GraphTab'
 import MemoryTab from './components/MemoryTab'
@@ -13,6 +14,7 @@ import VoiceTab from './components/VoiceTab'
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare, blurb: 'Streamed answers, tagged with the model that served them' },
   { id: 'voice', label: 'Voice', icon: Mic, blurb: 'Always-on wake word, with barge-in' },
+  { id: 'agents', label: 'Agents', icon: Share2, blurb: 'Drag personality agents onto a board the orchestrator convenes' },
   { id: 'council', label: 'Council', icon: Users, blurb: 'Three models propose in parallel, then synthesize' },
   { id: 'graph', label: 'Connections', icon: Network, blurb: 'Live code graph + the routing ladder' },
   { id: 'memory', label: 'Memory', icon: Brain, blurb: 'Durable facts, recalled across turns' },
@@ -93,6 +95,7 @@ export default function App() {
           <div key={tab} className="flex-1 min-h-0 animate-fade-up">
             {tab === 'chat' && <ChatTab model={model} />}
             {tab === 'voice' && <VoiceTab model={model} />}
+            {tab === 'agents' && <AgentsTab />}
             {tab === 'council' && <CouncilTab />}
             {tab === 'graph' && <GraphTab />}
             {tab === 'memory' && <MemoryTab />}

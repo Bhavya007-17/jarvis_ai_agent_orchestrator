@@ -109,6 +109,30 @@
   }
 }
 
+/* Agent Board — flowing pipe + dark React Flow chrome */
+.rf-pipe-pulse {
+  stroke-dasharray: 6 10;
+  animation: pipeflow 0.9s linear infinite;
+}
+@keyframes pipeflow {
+  to { stroke-dashoffset: -32; }
+}
+
+.react-flow__controls {
+  background: rgba(10, 18, 28, 0.7);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  border-radius: 0.5rem;
+  backdrop-filter: blur(8px);
+}
+.react-flow__controls-button {
+  background: transparent;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.12);
+  color: #9FD8E4;
+}
+.react-flow__controls-button:hover { background: rgba(34, 211, 238, 0.14); }
+.react-flow__controls-button svg { fill: #9FD8E4; }
+.react-flow__attribution { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

@@ -102,6 +102,43 @@ def _general_model() -> str:
     return os.environ.get("NIM_MODEL_GENERAL", "").strip()
 
 
+def _known_models() -> set[str]:
+    """The set of bare NIM ids a board roster may use — every one drawn from
+    ``.env`` (never hardcoded). A roster model outside this set is rejected so
+    the UI can't smuggle in an arbitrary/unbilled model id."""
+    ids = set(council_models())
+    for key in ("NIM_MODEL_REASONING", "NIM_MODEL_GENERAL",
+                "NIM_MODEL_CODE", "NIM_CRITIC"):
+        mid = os.environ.get(key, "").strip()
+        if mid:
+            ids.add(mid)
+    return ids
+
+
+def _build_roster(roster: list[dict]) -> list[tuple[str, str, str]]:
+    """Validate + normalize a board roster into ``(persona, lens, model)``
+    triples, capped at 3 proposers (the NIM free-tier guard from CLAUDE.md).
+
+    Raises ValueError on an empty roster, a missing persona/model, or a model
+    id that isn't one of the ``.env``-derived ids in ``_known_models()``.
+    """
+    known = _known_models()
+    team: list[tuple[str, str, str]] = []
+    for item in roster[:3]:
+        persona = str((item or {}).get("persona", "")).strip()
+        lens = str((item or {}).get("lens", "")).strip()
+        model_id = str((item or {}).get("model", "")).strip()
+        if not persona or not model_id:
+            raise ValueError(f"roster item requires 'persona' and 'model': {item!r}")
+        if model_id not in known:
+            raise ValueError(
+                f"unknown roster model {model_id!r}; not in the .env model set")
+        team.append((persona, lens, model_id))
+    if not team:
+        raise ValueError("roster is empty")
+    return team
+
+
 def _ladder_from(primary_full: str, *, also: list[str] | None = None) -> list[tuple[str, str]]:
     """Build a [(label, full_model_id)] ladder with ``primary_full`` first.
 
@@ -223,24 +260,37 @@ def synthesis_directive(proposals: list[dict], critique: str) -> str:
 
 
 def run_council(task: str, *, stream: bool = True, execute: bool = True,
-                max_tokens: int = 500, emit=None) -> A2ATask:
-    voices = council_models()
-    if len(voices) < 2:
-        raise RuntimeError(
-            "Need >=2 distinct NIM_COUNCIL_* model ids in .env for a council; "
-            f"found {voices}"
-        )
+                max_tokens: int = 500, emit=None,
+                roster: list[dict] | None = None) -> A2ATask:
     reasoning = _reasoning_model()
     if not reasoning:
         raise RuntimeError("NIM_MODEL_REASONING is unset in .env (critic/synth).")
 
-    a2a = A2ATask(input_text=task, state=TaskState.WORKING)
-    a2a.metadata["voices"] = voices
+    # The proposer team is a list of (persona, lens, model) triples — either an
+    # explicit board roster (validated, capped at 3) or the default pairing of
+    # NIM_COUNCIL_* models with COUNCIL_PERSONAS. The proposer loop below is then
+    # identical for both paths; roster=None keeps the CLI behavior unchanged.
+    if roster:
+        team = _build_roster(roster)
+    else:
+        voices = council_models()
+        if len(voices) < 2:
+            raise RuntimeError(
+                "Need >=2 distinct NIM_COUNCIL_* model ids in .env for a council; "
+                f"found {voices}"
+            )
+        team = [
+            (*COUNCIL_PERSONAS[idx % len(COUNCIL_PERSONAS)], model_id)
+            for idx, model_id in enumerate(voices[:3])
+        ]
+    proposer_models = [model_id for _, _, model_id in team]
 
-    # --- 1. propose x3 (or xN distinct) -----------------------------------
+    a2a = A2ATask(input_text=task, state=TaskState.WORKING)
+    a2a.metadata["voices"] = proposer_models
+
+    # --- 1. propose (<=3 distinct lenses/models) --------------------------
     proposals: list[dict] = []
-    for idx, model_id in enumerate(voices[:3]):
-        persona, lens = COUNCIL_PERSONAS[idx % len(COUNCIL_PERSONAS)]
+    for idx, (persona, lens, model_id) in enumerate(team):
         msgs = [
             Message(role=Role.SYSTEM, content=(
                 f"You are the {persona} on a planning council. {lens} "
@@ -251,7 +301,7 @@ def run_council(task: str, *, stream: bool = True, execute: bool = True,
         # proposer ladder: this council model, then the OTHER council models,
         # then cross-vendor. enable_thinking stays OFF for clean proposals.
         ladder = _ladder_from(_nim(model_id),
-                              also=[_nim(m) for m in voices if m != model_id])
+                              also=[_nim(m) for m in proposer_models if m != model_id])
         res = voice(f"PROPOSAL {idx + 1} — {persona}", msgs, ladder,
                     max_tokens=max_tokens, stream=stream, emit=emit)
         proposals.append({"persona": persona, "content": res["content"],
@@ -270,7 +320,7 @@ def run_council(task: str, *, stream: bool = True, execute: bool = True,
             "approach is safest. Be decisive and concise.")),
         Message(role=Role.USER, content=f"Task: {task}\n\n{bundle}"),
     ]
-    crit_ladder = _ladder_from(_nim(reasoning), also=[_nim(voices[0])])
+    crit_ladder = _ladder_from(_nim(reasoning), also=[_nim(proposer_models[0])])
     crit = voice("CRITIQUE — reasoning", crit_msgs, crit_ladder,
                  max_tokens=max_tokens, extra_body=THINKING_ON, stream=stream, emit=emit)
     a2a.history.append({"role": "critic", "content": crit["content"]})
@@ -285,7 +335,7 @@ def run_council(task: str, *, stream: bool = True, execute: bool = True,
         Message(role=Role.USER, content=(
             f"Task: {task}\n\n{bundle}\n\n### Critique\n{crit['content']}")),
     ]
-    synth_ladder = _ladder_from(_nim(reasoning), also=[_nim(voices[0])])
+    synth_ladder = _ladder_from(_nim(reasoning), also=[_nim(proposer_models[0])])
     synth = voice("SYNTHESIZED PLAN — reasoning", synth_msgs, synth_ladder,
                   max_tokens=max_tokens + 200, extra_body=THINKING_ON, stream=stream, emit=emit)
     a2a.output_text = synth["content"]
@@ -301,14 +351,14 @@ def run_council(task: str, *, stream: bool = True, execute: bool = True,
                 "concrete artifact (code/command/text). Note what remains.")),
             Message(role=Role.USER, content=synth["content"]),
         ]
-        exec_ladder = _ladder_from(_nim(gen) if gen else _nim(voices[0]))
+        exec_ladder = _ladder_from(_nim(gen) if gen else _nim(proposer_models[0]))
         ex = voice("EXECUTOR — single model", exec_msgs, exec_ladder,
                    max_tokens=max_tokens, stream=stream, emit=emit)
         a2a.metadata["executor_model"] = ex["model"]
         a2a.history.append({"role": "executor", "content": ex["content"]})
 
     if emit:
-        emit({"type": "council_done", "voices": voices,
+        emit({"type": "council_done", "voices": proposer_models,
               "executor": a2a.metadata.get("executor_model")})
     a2a.state = TaskState.COMPLETED
     return a2a

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { fetchModels } from '../lib/chatSocket'
+import ProvidersPanel from './ProvidersPanel'
 
 export default function SettingsTab({ model, setModel }) {
   const [models, setModels] = useState(['auto'])
   const [taskMap, setTaskMap] = useState({})
 
-  useEffect(() => { fetchModels().then((d) => { setModels(d.models); setTaskMap(d.task_map) }) }, [])
+  const loadModels = () => fetchModels().then((d) => { setModels(d.models); setTaskMap(d.task_map) })
+  useEffect(() => { loadModels() }, [])
 
   return (
     <div className="p-6 space-y-5 max-w-lg">
@@ -22,6 +24,7 @@ export default function SettingsTab({ model, setModel }) {
         </label>
         <p className="tag">“auto” routes by task type — switches live, no restart</p>
       </div>
+      <ProvidersPanel onSaved={loadModels} />
       <div className="glass rounded-xl p-4">
         <div className="font-hud text-xs uppercase tracking-wider text-core/80 mb-2">per-task map</div>
         <ul className="space-y-1 text-sm">

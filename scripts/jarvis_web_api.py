@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import jarvis_router  # Phase-1 router (classify / build_ladder / complete_with_fallback)
 import jarvis_council  # Phase-4 multi-model planning council
+import jarvis_providers  # Phase-7 provider keys (OpenAI/Anthropic/Groq/...) -> .env + live env
 import jarvis_memory   # Phase-3 personal_facts + session
 import jarvis_voice    # Phase-6 STT/TTS glue
 import jarvis_wake     # Phase-6 wake-word + VAD
@@ -47,9 +48,12 @@ def health() -> dict:
 @app.get("/api/models")
 def models() -> dict:
     task_map = jarvis_router.task_model_map()
-    # Distinct, non-empty model ids across the task map, plus the 'auto' router.
-    distinct = [m for m in dict.fromkeys(task_map.values()) if m]
-    return {"task_map": task_map, "models": ["auto", *distinct]}
+    # Distinct, non-empty model ids across the task map, plus the 'auto' router,
+    # plus every enabled provider's models (Phase 7). dict.fromkeys dedupes while
+    # preserving order; ids all come from .env, never hardcoded.
+    distinct = [m for m in task_map.values() if m]
+    combined = dict.fromkeys(["auto", *distinct, *jarvis_providers.provider_models()])
+    return {"task_map": task_map, "models": list(combined)}
 
 
 def _ladder_for(message: str, model_choice: str) -> tuple[str, list[tuple[str, str]]]:
@@ -63,7 +67,10 @@ def _ladder_for(message: str, model_choice: str) -> tuple[str, list[tuple[str, s
         # prefix.  Only ids already carrying a known provider prefix are left
         # as-is — otherwise the chosen rung 500s ("LLM Provider NOT provided")
         # and the user's selection is silently dropped to the fallback model.
-        known = ("nvidia_nim/", "gemini/", "ollama/")
+        # Known LiteLLM routes: NIM + the Phase-7 providers + the local/Gemini
+        # fallbacks. A chosen id already carrying one of these is passed through
+        # as-is; a bare NIM id (e.g. "meta/llama-3.3-70b") gets the NIM prefix.
+        known = ("nvidia_nim/", "gemini/", "ollama/", *jarvis_providers.provider_prefixes())
         full = model_choice if model_choice.startswith(known) \
             else f"{jarvis_router.NIM_PROVIDER}/{model_choice}"
         rest = [r for r in base if r[1] != full]
@@ -302,6 +309,13 @@ async def council_ws(websocket: WebSocket) -> None:
         return
     execute = bool((data or {}).get("execute", False))
     max_tokens = int((data or {}).get("max_tokens", 400))
+    # Optional board roster: [{persona, lens, model}]. When present, the council
+    # deliberates over exactly these agents (validated + capped to 3 in
+    # run_council); when absent, the default NIM_COUNCIL_* trio is used.
+    roster = (data or {}).get("roster")
+    if roster is not None and not isinstance(roster, list):
+        await websocket.send_json({"type": "error", "detail": "'roster' must be a list"})
+        return
 
     # Council voices each spin a nested asyncio.run internally, so we bridge with
     # a plain thread-safe queue (no cross-loop call_soon_threadsafe, which drops
@@ -317,9 +331,11 @@ async def council_ws(websocket: WebSocket) -> None:
         q.put(frame)
 
     def run() -> None:
+        kwargs = dict(stream=True, execute=execute, max_tokens=max_tokens, emit=emit)
+        if roster:
+            kwargs["roster"] = roster
         try:
-            jarvis_council.run_council(task, stream=True, execute=execute,
-                                       max_tokens=max_tokens, emit=emit)
+            jarvis_council.run_council(task, **kwargs)
         except Exception as exc:  # noqa: BLE001 - surface council failure as a frame
             q.put({"type": "error", "detail": str(exc)})
         finally:
@@ -480,3 +496,111 @@ def mcp_tools() -> dict:
         return {"ok": True, "tools": names}
     except Exception as exc:  # noqa: BLE001 - discovery is best-effort (spawns servers)
         return {"ok": False, "tools": [], "detail": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Providers (Phase 7 / Slice E) — paste a provider key, models go live, no
+# restart. Mirrors the MCP add-server safety pattern; a key value is NEVER
+# returned by any response (presence booleans only).
+# ---------------------------------------------------------------------------
+@app.get("/api/providers")
+def get_providers() -> dict:
+    return {"providers": jarvis_providers.presence(),
+            "known": list(jarvis_providers.PROVIDERS)}
+
+
+@app.post("/api/providers")
+async def set_provider(payload: dict) -> dict:
+    provider = (payload or {}).get("provider", "").strip()
+    key = (payload or {}).get("key", "")
+    err = jarvis_providers.validate_key(provider, key)
+    if err:
+        return {"ok": False, "message": err}
+    try:
+        present = jarvis_providers.set_key(provider, key)
+    except ValueError as exc:  # validate_key already passed; defensive only
+        return {"ok": False, "message": str(exc)}
+    except OSError as exc:  # .env not writable -> surface, don't leak the key
+        return {"ok": False, "message": f"could not write .env: {exc}"}
+    return {"ok": True, "providers": present}
+
+
+# ---------------------------------------------------------------------------
+# Agent Board (Slice B) — persist the drag-drop layout server-side.
+# No browser localStorage (CLAUDE.md); the board lives in ~/.openjarvis/board.json.
+# ---------------------------------------------------------------------------
+
+# Persona ids the board may persist — mirrors web/src/lib/agents.js. Models are
+# NOT hardcoded here: they're validated against jarvis_council's .env model set.
+BOARD_PERSONAS = {"architect", "skeptic", "pragmatist", "coder",
+                  "researcher", "creative", "fact-checker", "planner"}
+_EMPTY_BOARD = {"nodes": [], "edges": [], "models": {}}
+
+
+def _board_path():
+    from openjarvis.core.paths import get_config_dir
+    return get_config_dir() / "board.json"
+
+
+def _load_board() -> dict:
+    p = _board_path()
+    if not p.exists():
+        return dict(_EMPTY_BOARD)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - corrupt file -> empty board, never 500
+        return dict(_EMPTY_BOARD)
+    if not isinstance(data, dict):
+        return dict(_EMPTY_BOARD)
+    return {"nodes": data.get("nodes", []), "edges": data.get("edges", []),
+            "models": data.get("models", {})}
+
+
+def _validate_board(board: dict) -> str | None:
+    """Return an error string, or None if the board is well-formed and only
+    references known personas + .env-derived models."""
+    if not isinstance(board, dict):
+        return "board must be an object"
+    nodes = board.get("nodes", [])
+    edges = board.get("edges", [])
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        return "'nodes' and 'edges' must be lists"
+    known_models = jarvis_council._known_models()
+    for n in nodes:
+        if not isinstance(n, dict):
+            return "each node must be an object"
+        if not str(n.get("id", "")).strip():
+            return "each node needs an 'id'"
+        if n.get("persona") not in BOARD_PERSONAS:
+            return f"unknown persona {n.get('persona')!r}"
+        model = str(n.get("model", "")).strip()
+        if model and model not in known_models:
+            return f"unknown model {model!r}; not in the .env model set"
+    for e in edges:
+        if not isinstance(e, dict) or not e.get("source") or not e.get("target"):
+            return "each edge needs 'source' and 'target'"
+    return None
+
+
+def _write_board(board: dict) -> None:
+    p = _board_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    clean = {"nodes": board.get("nodes", []), "edges": board.get("edges", []),
+             "models": board.get("models", {})}
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+    tmp.replace(p)  # atomic on the same filesystem
+
+
+@app.get("/api/board")
+def get_board() -> dict:
+    return _load_board()
+
+
+@app.put("/api/board")
+async def put_board(payload: dict) -> dict:
+    err = _validate_board(payload or {})
+    if err:
+        return {"ok": False, "message": err}
+    _write_board(payload)
+    return {"ok": True, "board": _load_board()}
