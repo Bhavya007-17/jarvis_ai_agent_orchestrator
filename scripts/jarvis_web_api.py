@@ -604,3 +604,78 @@ async def put_board(payload: dict) -> dict:
         return {"ok": False, "message": err}
     _write_board(payload)
     return {"ok": True, "board": _load_board()}
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 — ada-style shell layout. Persist which module windows are open and
+# where, server-side (no browser localStorage). Mirrors the Agent Board block.
+# ---------------------------------------------------------------------------
+
+# Known module ids the shell may persist — mirrors web/src/shell/modules.js.
+UI_MODULES = {"chat", "voice", "agents", "council", "graph",
+              "memory", "tools", "settings"}
+_EMPTY_LAYOUT = {"windows": {}}
+
+
+def _layout_path():
+    from openjarvis.core.paths import get_config_dir
+    return get_config_dir() / "ui_layout.json"
+
+
+def _load_layout() -> dict:
+    p = _layout_path()
+    if not p.exists():
+        return {"windows": {}}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - corrupt file -> empty layout, never 500
+        return {"windows": {}}
+    if not isinstance(data, dict) or not isinstance(data.get("windows"), dict):
+        return {"windows": {}}
+    return {"windows": data["windows"]}
+
+
+def _validate_layout(layout: dict) -> str | None:
+    """Return an error string, or None if the layout is well-formed and only
+    references known module ids with numeric coords + a boolean open flag."""
+    if not isinstance(layout, dict):
+        return "layout must be an object"
+    windows = layout.get("windows", {})
+    if not isinstance(windows, dict):
+        return "'windows' must be an object"
+    for mod_id, w in windows.items():
+        if mod_id not in UI_MODULES:
+            return f"unknown module {mod_id!r}"
+        if not isinstance(w, dict):
+            return f"window {mod_id!r} must be an object"
+        for coord in ("x", "y"):
+            if not isinstance(w.get(coord), (int, float)) or isinstance(w.get(coord), bool):
+                return f"window {mod_id!r} {coord!r} must be a number"
+        if not isinstance(w.get("open"), bool):
+            return f"window {mod_id!r} 'open' must be a boolean"
+        if not isinstance(w.get("z", 0), int) or isinstance(w.get("z", 0), bool):
+            return f"window {mod_id!r} 'z' must be an integer"
+    return None
+
+
+def _write_layout(layout: dict) -> None:
+    p = _layout_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    clean = {"windows": layout.get("windows", {})}
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+    tmp.replace(p)  # atomic on the same filesystem
+
+
+@app.get("/api/ui-layout")
+def get_ui_layout() -> dict:
+    return _load_layout()
+
+
+@app.put("/api/ui-layout")
+async def put_ui_layout(payload: dict) -> dict:
+    err = _validate_layout(payload or {})
+    if err:
+        return {"ok": False, "message": err}
+    _write_layout(payload)
+    return {"ok": True, "layout": _load_layout()}
