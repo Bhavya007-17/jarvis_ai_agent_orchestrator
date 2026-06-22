@@ -2,7 +2,7 @@
 
 # 🤖 Jarvis — Agentic Multi-Model Orchestrator
 
-**One "head" that routes every task to the best model, convenes a multi-model planning council for hard problems, remembers what matters, calls real tools over MCP, and talks back — all running locally on Windows.**
+**One "head" that routes every task to the best model, convenes a multi-model planning council for hard problems, reasons across a graph of agents, remembers what matters, calls real tools over MCP, sees your screen, and talks back — all running locally on Windows.**
 
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-sidecar-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -10,7 +10,8 @@
 [![LiteLLM](https://img.shields.io/badge/LiteLLM-engine-6E56CF)](https://github.com/BerriAI/litellm)
 [![NVIDIA NIM](https://img.shields.io/badge/NVIDIA-NIM-76B900?logo=nvidia&logoColor=white)](https://build.nvidia.com/)
 [![MCP](https://img.shields.io/badge/MCP-tools-FF6B6B)](https://modelcontextprotocol.io/)
-[![Tests](https://img.shields.io/badge/web%20tests-24%2F24-success)](#-testing)
+[![Tests](https://img.shields.io/badge/web%20suite-174%2F174-success)](#-testing)
+[![Built on](https://img.shields.io/badge/built%20on-OpenJarvis-1f6feb)](https://github.com/open-jarvis/OpenJarvis)
 
 </div>
 
@@ -18,70 +19,59 @@
 
 ## ✨ What is this?
 
-Jarvis is a **local agentic orchestrator** built on the [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) backbone. It wires together six proven open-source capabilities into a single assistant with one design principle: **integrate and configure — don't reimplement.**
+Jarvis is a **local agentic orchestrator** built on the [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) backbone. It wires together six proven open-source projects into a single assistant under one strict design principle:
 
-It picks the right model per task, escalates hard planning questions to a **3-model council**, keeps durable memory, drops in **MCP tools** (a live code-graph + web/GitHub access), and supports **always-on voice** — behind a clean 7-tab web UI.
+> ### PRIME DIRECTIVE — *wire, don't rewrite.*
+> Every capability already exists in a vendored repo. Jarvis **integrates and configures** them through a thin sidecar and the OpenJarvis engine — it does **not** reimplement them. The whole project is built as a chain of self-contained phases, each with its own brainstorm → spec → TDD → gate cycle.
 
-| | |
-|---|---|
-| 🧠 **Smart routing** | Classifies each task (code / reasoning / general) and routes to the best NVIDIA NIM model |
-| 🪜 **Resilient fallback** | `NIM-A → NIM-B → Gemini → local Ollama` with exponential backoff + 429 handling |
-| 🏛️ **Planning council** | 3 distinct models propose in parallel → a reasoning model critiques → synthesizes one plan |
-| 💾 **Memory** | Durable personal facts, session history, and a queryable code graph |
-| 🔌 **MCP tools** | Codebase-Memory graph (`:9749`) + Agent-Reach web/GitHub fetch, dropped in via config |
-| 🎙️ **Voice** | Browser mic → wake word → STT → orchestrator → TTS, with barge-in |
+It picks the right model per task, escalates hard planning to a **3-model council**, lets you **draw a graph of agents that reason over each other**, keeps **durable memory**, drops in **MCP tools** (a live code-graph, web/GitHub access, and six ported action tools), supports **always-on voice**, does **face-auth + hand-gesture vision**, and can **point at things on your screen** — behind an ada-style floating-window HUD.
+
+---
+
+## 🎛️ Feature matrix
+
+| | Capability | How |
+|---|---|---|
+| 🧠 | **Smart routing** | Classifies each task (code / reasoning / general) → best NVIDIA NIM model |
+| 🪜 | **Resilient fallback** | `NIM-A → NIM-B → Gemini → local Ollama` with exponential backoff + 429 handling |
+| 🏛️ | **Planning council** | 3 distinct models propose in parallel → a reasoning model critiques → synthesizes one plan |
+| 🕸️ | **Agent graph** | Draw agent→agent edges; runs in topological order, ≤3 concurrent, 34 ECC personas |
+| 💾 | **Memory** | Durable personal facts → `USER.md`, session history, queryable code graph |
+| 🔌 | **MCP tools** | Live code knowledge-graph (`:9749`), web/GitHub fetch, + 6 ported action tools |
+| 🛠️ | **Action tools** | `web_search`, `weather`, `reminder`, `youtube`, `flight_finder`, `file_processor` |
+| 🎙️ | **Voice** | Always-on wake-word ("Hey Jarvis") → Whisper STT → router → Edge-TTS, with barge-in |
+| 👁️ | **Vision** | Browser MediaPipe face-auth unlock, hand-gesture window control, mic visualizer |
+| 🎯 | **Clicky** | "Where is X on screen?" → vision model points → annotated screenshot |
+| 🔑 | **Provider keys** | Paste OpenAI/Anthropic/Groq/… keys in-UI → models appear everywhere (`.env`-backed) |
+| 🪟 | **ada-style shell** | Floating, draggable module windows over an arc-reactor HUD; layout persists server-side |
 
 ---
 
 ## 📸 Screenshots
 
-### Chat — streamed answers tagged with the model that served them
-> Every reply shows the rung that produced it (`served by NIM-A`).
-
-![Chat](docs/screenshots/chat.png)
-
-### Council — three models think in parallel, then synthesize
-> Pragmatist (Llama-3.3-70B), Architect (Qwen3.5-397B) and Skeptic (DeepSeek-V4) each draft a proposal; a reasoning model critiques and merges them.
-
-![Council](docs/screenshots/council.png)
-
-### Connections — live code graph + routing map
-> The Codebase-Memory MCP graph (241 nodes / 402 edges of this very repo) alongside the live NIM fallback ladders.
-
-![Connections](docs/screenshots/connections.png)
+### The shell — floating module windows over an arc-reactor HUD
+![Jarvis shell](docs/screenshots/shell.png)
 
 <table>
 <tr>
-<td width="50%">
-
-**Voice — always-on wake word**
-
-![Voice](docs/screenshots/voice.png)
-
-</td>
-<td width="50%">
-
-**Memory — durable personal facts**
-
-![Memory](docs/screenshots/memory.png)
-
-</td>
+<td width="50%"><b>Chat</b> — streamed answers with the served-by model rung<br><img src="docs/screenshots/chat.png" alt="Chat"></td>
+<td width="50%"><b>Agents graph</b> — draw agent→agent edges, run in topological order<br><img src="docs/screenshots/agents.png" alt="Agent graph"></td>
 </tr>
 <tr>
-<td width="50%">
-
-**Tools — drop-in MCP servers**
-
-![Tools](docs/screenshots/tools.png)
-
-</td>
-<td width="50%">
-
-**Settings — switch models without restart**
-
-![Settings](docs/screenshots/settings.png)
-
-</td>
+<td width="50%"><b>Council</b> — 3 live proposals → critique → synthesis<br><img src="docs/screenshots/council.png" alt="Council"></td>
+<td width="50%"><b>Connections</b> — live code knowledge-graph + routing map<br><img src="docs/screenshots/connections.png" alt="Connections"></td>
+</tr>
+<tr>
+<td width="50%"><b>Memory</b> — durable personal facts + sessions<br><img src="docs/screenshots/memory.png" alt="Memory"></td>
+<td width="50%"><b>Tools (MCP)</b> — discover + add MCP servers<br><img src="docs/screenshots/tools.png" alt="Tools"></td>
+</tr>
+<tr>
+<td width="50%"><b>Voice</b> — always-on wake-word assistant<br><img src="docs/screenshots/voice.png" alt="Voice"></td>
+<td width="50%"><b>Vision</b> — face-auth, hand gestures, mic visualizer<br><img src="docs/screenshots/vision.png" alt="Vision"></td>
+</tr>
+<tr>
+<td width="50%"><b>Clicky</b> — "where is X?" → on-screen pointing<br><img src="docs/screenshots/clicky.png" alt="Clicky"></td>
+<td width="50%"><b>Settings</b> — switch models live, paste provider keys<br><img src="docs/screenshots/settings.png" alt="Settings"></td>
 </tr>
 </table>
 
@@ -89,267 +79,129 @@ It picks the right model per task, escalates hard planning questions to a **3-mo
 
 ## 🏗️ Architecture
 
-A thin **FastAPI sidecar** (`:8700`) bridges the React web UI to the Jarvis "brain" — every LLM call flows through OpenJarvis's LiteLLM engine, with **zero edits to the backbone or vendored repos**.
+```
+                                Browser (React + Vite, ada HUD shell)
+   Chat · Agents · Council · Connections · Memory · Tools · Voice · Vision · Clicky · Settings
+                                          │  WS + REST
+                                          ▼
+                       scripts/jarvis_web_api.py   ── thin FastAPI sidecar (:8700) ──
+                                          │   zero backbone edits; wires every phase
+        ┌───────────────┬────────────────┼─────────────────┬──────────────────┐
+        ▼               ▼                 ▼                 ▼                  ▼
+  jarvis_router    jarvis_council    jarvis_graph     jarvis_memory      jarvis_vision
+  (route+ladder)   (propose/crit/    (topological     (facts→USER.md)    (cosine compare)
+        │           synth)            DAG, ≤3)              │             jarvis_clicky
+        │               │                 │                │             (grid pointing)
+        └───────────────┴───────┬─────────┴────────────────┘             jarvis_voice/wake
+                                 ▼                                        jarvis_tools_mcp
+                  OpenJarvis LiteLLMEngine  (the ONE LLM path)            (6 action tools)
+                                 │
+        NIM-A ──▶ NIM-B ──▶ Gemini Flash ──▶ local Ollama   (fallback ladder + backoff)
 
-```mermaid
-flowchart TB
-    subgraph Browser["Browser - React + Vite (:5173)"]
-        Chat["Chat"]
-        Voice["Voice (16 kHz PCM worklet)"]
-        Council["Council"]
-        Graph["Connections"]
-        Mem["Memory"]
-        Tools["Tools"]
-    end
-
-    subgraph Sidecar["FastAPI Sidecar (:8700) - thin glue, no backbone edits"]
-        WSChat["WS /api/chat"]
-        WSVoice["WS /api/voice"]
-        WSCouncil["WS /api/council"]
-        REST["REST /api/memory, /api/routing, /api/mcp"]
-    end
-
-    subgraph Brain["Jarvis Brain (reused OpenJarvis + scripts)"]
-        Router["Router + Fallback Ladder"]
-        CouncilEng["Planning Council"]
-        Memory["Memory (facts, session, code graph)"]
-        VoiceEng["Voice (wake, STT, TTS)"]
-        Engine["LiteLLM Engine"]
-    end
-
-    subgraph Models["Models"]
-        NIM["NVIDIA NIM (primary + council)"]
-        Gemini["Gemini Flash (fallback)"]
-        Ollama["Ollama qwen2.5:7b (offline)"]
-    end
-
-    subgraph MCP["MCP Servers"]
-        CBM["Codebase-Memory graph :9749"]
-        AR["Agent-Reach web / GitHub"]
-    end
-
-    Chat --> WSChat --> Router
-    Voice --> WSVoice --> VoiceEng --> Router
-    Council --> WSCouncil --> CouncilEng
-    Graph --> REST
-    Mem --> REST
-    Tools --> REST
-    REST --> Memory
-    REST --> MCP
-
-    Router --> Engine
-    CouncilEng --> Engine
-    Engine --> NIM
-    Engine -.fallback.-> Gemini
-    Engine -.offline.-> Ollama
-    Memory --> CBM
-    REST --> AR
+   MCP servers (config.tools.mcp.servers): codebase-memory (:9749) · agent-reach · jarvis-tools
 ```
 
-### Request routing & the fallback ladder
-
-Each prompt is classified by keyword heuristics, mapped to a role model, then run through a resilient ladder. A per-rung retry with exponential backoff (`1s → 2s → 4s`) absorbs NIM's free-tier `429`s before walking to the next provider — so a single request degrades gracefully instead of failing.
-
-```mermaid
-flowchart LR
-    P["Prompt"] --> C{classify}
-    C -->|code| CM["Qwen3.5-397B"]
-    C -->|reasoning| RM["Nemotron-49B"]
-    C -->|general| GM["Llama-3.3-70B"]
-
-    CM --> L
-    RM --> L
-    GM --> L
-
-    subgraph L["Fallback Ladder (per request)"]
-        direction LR
-        A["NIM-A role model"] -->|429 / timeout| B["NIM-B other NIM"]
-        B -->|exhausted| G["Gemini Flash"]
-        G -->|no key / down| O["Ollama (offline)"]
-    end
-
-    L --> R["Answer + 'served by' rung"]
-```
-
-### Planning council (hard problems only)
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Council
-    participant M1 as Pragmatist - Llama-70B
-    participant M2 as Architect - Qwen3.5
-    participant M3 as Skeptic - DeepSeek-V4
-    participant R as Reasoner - Nemotron
-    U->>C: "Design X"
-    par 3 distinct models, 3 lenses
-        C->>M1: propose
-        C->>M2: propose
-        C->>M3: propose
-    end
-    M1-->>C: proposal 1
-    M2-->>C: proposal 2
-    M3-->>C: proposal 3
-    C->>R: critique all three (enable_thinking)
-    R-->>C: critique
-    C->>R: synthesize one plan
-    R-->>C: final plan
-    C->>U: stream every voice live
-```
-
-### Voice pipeline (always-on, barge-in)
-
-```mermaid
-flowchart LR
-    Mic["getUserMedia"] --> WL["PCM worklet: Float32 to Int16 @ 16 kHz"]
-    WL -->|80 ms frames over WS| WW{"openWakeWord 'hey jarvis'"}
-    WW -->|score >= 0.5| VAD["webrtcvad segment utterance"]
-    VAD --> STT["faster-whisper small / CPU"]
-    STT --> ROUTER["Router (same brain as chat)"]
-    ROUTER --> TTS["Edge-TTS sentence-streamed mp3"]
-    TTS -->|playback| Mic
-    Mic -.talk over reply.-> Cancel["barge-in: stop playback"]
-```
+**Design rules enforced throughout:** every LLM call rides `LiteLLMEngine`; no model id is ever hardcoded (all from `.env`); no browser `localStorage` (state persists via sidecar JSON endpoints); council/graph cap at ≤3 concurrent calls; **zero edits to the OpenJarvis backbone or any `_vendor/` repo.**
 
 ---
 
-## 🧰 Tech stack
+## 🧩 The six wired repos (`_vendor/`, read-only)
 
-**Orchestration & backend:** Python 3.12 · FastAPI · WebSockets · [LiteLLM](https://github.com/BerriAI/litellm) · [OpenJarvis](https://github.com/open-jarvis/OpenJarvis) backbone
-**Models:** NVIDIA NIM (Llama-3.3-70B, Qwen3.5-397B, Nemotron-49B, DeepSeek-V4) · Google Gemini Flash · Ollama (qwen2.5:7b)
-**Voice:** openWakeWord · faster-whisper · Edge-TTS · webrtcvad · Web Audio `AudioWorklet`
-**Tools:** Model Context Protocol — Codebase-Memory MCP (code graph) · Agent-Reach (web/GitHub)
-**Frontend:** React · Vite · Tailwind CSS · Framer Motion · lucide-react — an *ada_v2*-inspired "arc-reactor" HUD (Orbitron / Rajdhani / Share Tech Mono)
-**Tooling:** `uv` (deps) · `pytest` (24 web tests) · Playwright (browser smoke)
+| Repo | What Jarvis reuses |
+|---|---|
+| **[OpenJarvis](https://github.com/open-jarvis/OpenJarvis)** *(backbone)* | LiteLLM engine, agent tool-loop, MCP loader, prompt builder, sessions |
+| **codebase-memory-mcp** | Code knowledge-graph + 3D viz UI (`:9749`), as an MCP server |
+| **Agent-Reach** | Internet + GitHub access, as an MCP server |
+| **superpowers** | The brainstorm → spec → plan → TDD methodology (as skills) |
+| **ada_v2** | React web-UI shell, floating windows, visualizer, face-auth |
+| **Mark-XL** | Personal-facts memory, STT/TTS, and the six action tools |
 
 ---
 
-## 🚀 Getting started
+## 🔬 How it works (phase by phase)
 
-> Windows + PowerShell. Assumes `git`, [`uv`](https://docs.astral.sh/uv/), `node`, and [`ollama`](https://ollama.com/) are installed.
+- **Routing & fallback** (`jarvis_router.py`) — keyword-classifies a task, then walks the `NIM-A → NIM-B → Gemini → Ollama` ladder with exponential backoff; `jarvis doctor` reports health.
+- **Council** (`jarvis_council.py`) — 3 distinct NIM model families each take a lens (Pragmatist / Architect / Skeptic), propose in parallel, a reasoning model (`enable_thinking`) critiques and synthesizes, a single executor runs the plan. No 429 storm.
+- **Agent graph** (`jarvis_graph.py`) — generalizes the council to a user-drawn DAG: validated for cycles (Kahn) with the orchestrator as a mandatory sink, executed with one `asyncio.Task` per node holding a `Semaphore(3)`. 34 personas sourced from real ECC agent definitions.
+- **Memory** (`jarvis_memory.py`) — ports Mark-XL's structured facts into `~/.openjarvis/USER.md`, which OpenJarvis's prompt builder injects into every turn — so a fact stored now is recalled later.
+- **MCP tools** — `setup_config.py` registers stdio servers into `config.tools.mcp.servers`; the orchestrator's existing tool-loop calls them. Includes the **6 ported action tools** (`jarvis_tools_mcp.py`) — each Mark-XL action with its internal LLM call rewired through the router.
+- **Voice** (`jarvis_voice.py` / `jarvis_wake.py`) — openWakeWord → faster-whisper STT → router → Edge-TTS, sentence-streamed, with idle-sleep and barge-in.
+- **Vision** (`jarvis_vision.py`) — browser MediaPipe extracts face/hand landmarks; the server owns only a pure-numpy cosine compare and the enrolled vector (presence-only, never returned). Gestures map to window actions.
+- **Clicky** (`jarvis_clicky.py`) — two-stage grid (Set-of-Mark) pointing: capture the screen, a vision model picks a grid cell, zoom, pick again, map to pixels, return an annotated screenshot. Vision call rides `LiteLLMEngine` with OpenAI image blocks (model from `.env VISION_MODEL`).
+- **Provider keys** (`jarvis_providers.py`) — paste a key in Settings → written to `.env` + live `os.environ` → its models appear in every dropdown. Keys are never echoed back.
 
-```powershell
-# 1. Install Python deps (core + extras)
-uv sync --extra inference-litellm --extra server --extra inference-google --extra inference-cloud
+---
 
-# 2. Voice deps (one-time)
-uv pip install faster-whisper edge-tts openwakeword onnxruntime webrtcvad sounddevice "setuptools<81"
-uv run python -c "import openwakeword.utils as u; u.download_models()"
-
-# 3. Local fallback model
-ollama pull qwen2.5:7b
-
-# 4. Frontend deps
-cd web; npm install; cd ..
-```
-
-Create a **`.env`** in the project root (never committed — it's gitignored):
-
-```dotenv
-NVIDIA_API_KEY=nvapi-...            # free at build.nvidia.com
-GEMINI_API_KEY=...                  # optional fallback
-NIM_MODEL_REASONING=nvidia/llama-3.3-nemotron-super-49b-v1
-NIM_MODEL_CODE=qwen/qwen3.5-397b-a17b
-NIM_MODEL_GENERAL=meta/llama-3.3-70b-instruct
-NIM_COUNCIL_1=meta/llama-3.3-70b-instruct
-NIM_COUNCIL_2=qwen/qwen3.5-397b-a17b
-NIM_COUNCIL_3=deepseek-ai/deepseek-v4-pro
-NIM_CRITIC=nvidia/llama-3.3-nemotron-super-49b-v1
-GEMINI_FALLBACK_MODEL=gemini/gemini-2.0-flash
-LOCAL_FALLBACK_MODEL=ollama/qwen2.5:7b
-WAKE_MODEL=hey_jarvis
-TTS_VOICE=en-US-GuyNeural
-```
-
-> ⚠️ NIM model IDs drift monthly. Run `uv run python scripts/verify_models.py` to validate your IDs against the live `/v1/models` catalog.
-
-### Run it
+## 🚀 Getting started (Windows / PowerShell)
 
 ```powershell
-# Web UI + voice (sidecar :8700 + Vite :5173)
+# Prereqs: git, uv, node, ollama (all on PATH)
+uv python install 3.12
+uv sync                                   # core deps
+ollama pull qwen2.5:7b                    # offline fallback model
+
+# Put your free keys in .env (you own this file):
+#   NVIDIA_API_KEY=...     (https://build.nvidia.com — free tier)
+#   GEMINI_API_KEY=...     (optional 2nd voice / fallback)
+#   VISION_MODEL=meta/llama-3.2-90b-vision-instruct   (optional — enables Clicky)
+
+uv run python scripts/setup_config.py     # generate active config from .env
+
+# CLI
+pwsh .\scripts\jarvis.ps1 ask "hi"                       # NIM answer
+pwsh .\scripts\jarvis.ps1 ask --agent operative "what's the weather in London"   # tool call
+
+# Web UI (sidecar :8700 + Vite :5173)
 pwsh .\scripts\jarvis_web.ps1
-
-# (optional) code-graph UI for the Connections tab
-codebase-memory-mcp --ui=true --port=9749
-
-# CLI one-shot
-pwsh .\scripts\jarvis.ps1 ask "explain async/await in one paragraph"
 ```
-
-Open **http://localhost:5173** → Chat round-trips through NIM; Voice tab → *Start always-on* → say **"Hey Jarvis"**.
 
 ---
 
-## 🧪 Testing
+## ✅ Testing
 
 ```powershell
-uv run pytest tests/web/ -q                       # 24 sidecar / voice / wake tests
-cd web; npx playwright test                        # browser render smoke (launcher must be running)
-uv run python scripts/jarvis_router.py doctor      # provider health + per-task model map
+uv run pytest tests/web/ -q          # 174/174 — sidecar, router, council, graph,
+                                     # memory, voice, vision, action tools, clicky
+cd web; npx playwright test          # browser smoke (launcher running)
+```
+
+- Unit + integration tests mock all network/LLM/camera — **no live spend, no hardware** required in CI.
+- New modules ship at **≥80% coverage**; every phase has one explicit gate.
+
+---
+
+## 🗂️ Project layout
+
+```
+scripts/
+  jarvis_router.py     routing + fallback ladder + doctor
+  jarvis_council.py    propose → critique → synthesize → execute
+  jarvis_graph.py      topological agent-graph executor
+  jarvis_memory.py     personal facts → USER.md
+  jarvis_tools_mcp.py  6 action tools as one MCP server
+  jarvis_clicky.py     two-stage grid screen pointing
+  jarvis_vision.py     face cosine-compare + lock store
+  jarvis_voice.py      STT/TTS · jarvis_wake.py  wake-word + VAD
+  jarvis_providers.py  provider keys → .env + live env
+  jarvis_web_api.py    the thin FastAPI sidecar wiring it all
+  setup_config.py      .env → ~/.openjarvis/config.toml (+ MCP servers)
+web/                   React + Vite ada-style shell (floating windows)
+src/openjarvis/        the OpenJarvis backbone (vendored, unmodified)
+_vendor/               5 read-only reference repos
 ```
 
 ---
 
-## 📁 Project structure
+## 🧠 Design principles
 
-```text
-Jarvis/
-├── src/openjarvis/             # OpenJarvis backbone (engine, server, memory, MCP loader)
-│   ├── engine/litellm.py       #   unified LLM access (every call goes through here)
-│   └── server/cloud_router.py  #   + NVIDIA NIM provider (mirrors existing providers)
-├── scripts/                    # the Jarvis orchestration layer (this project's work)
-│   ├── jarvis_router.py        #   classify -> route -> fallback ladder -> doctor
-│   ├── jarvis_council.py       #   propose x3 -> critique -> synthesize -> execute
-│   ├── jarvis_memory.py        #   personal facts (-> USER.md), session, code graph
-│   ├── jarvis_voice.py         #   STT (faster-whisper) + TTS (Edge-TTS) glue
-│   ├── jarvis_wake.py          #   openWakeWord + webrtcvad segmenter
-│   ├── jarvis_web_api.py       #   FastAPI sidecar — wires it all to the browser
-│   ├── setup_config.py         #   .env -> ~/.openjarvis/config.toml (+ MCP servers)
-│   └── verify_*.py             #   gate checks (models, MCP, memory)
-├── web/                        # React UI (ada_v2 fork, Electron stripped)
-│   ├── src/components/         #   Chat, Voice, Council, Graph, Memory, Tools, Settings
-│   └── src/lib/                #   chatSocket, voiceSocket, pcm-worklet
-├── tests/web/                  # pytest: sidecar, voice, wake
-├── docs/screenshots/           # the images above
-└── PROGRESS.md                 # phase-by-phase build log
-```
-
----
-
-## 🛤️ How it was built
-
-Built in **8 gated phases**, each with a concrete acceptance gate before moving on — the full log lives in [`PROGRESS.md`](PROGRESS.md).
-
-| Phase | Capability | Highlight |
-|------:|------------|-----------|
-| −1 | Bootstrap | OpenJarvis backbone + 5 reference repos, reproducible `uv` env |
-| 0 | NIM wiring | Wired NVIDIA NIM via LiteLLM's native provider; caught 3 drifted model IDs |
-| 1 | Router + fallback | Task classifier + `NIM→Gemini→local` ladder with 429-aware backoff |
-| 2 | MCP drop-in | Code-graph (`:9749`, 31k nodes) + Agent-Reach, via config only |
-| 3 | Memory | Durable facts injected into the system prompt; live cross-turn recall |
-| 4 | Council | 3 distinct models + reasoning critic/synthesizer, no 429 storm |
-| 5 | Web UI | 7-tab React app over a thin sidecar — zero backbone edits |
-| 6 | Voice | Browser mic → wake → STT → orchestrator → TTS, with barge-in |
-
-**Design constraints honored throughout:** never hardcode a model ID (all from `.env`), every LLM call through the LiteLLM engine, and never reimplement what a vendored repo already provides.
-
----
-
-## 🙏 Credits
-
-This project **integrates** (does not fork-and-rewrite) these open-source projects:
-
-- [**OpenJarvis**](https://github.com/open-jarvis/OpenJarvis) — the orchestration backbone ([upstream README](README.openjarvis.md))
-- [**codebase-memory-mcp**](https://github.com/DeusData/codebase-memory-mcp) — code graph + 3D viz over MCP
-- [**Agent-Reach**](https://github.com/Panniantong/Agent-Reach) — internet + GitHub access
-- [**ada_v2**](https://github.com/nazirlouis/ada_v2) — React web UI shell + voice
-- [**Mark-XL**](https://github.com/FatihMakes/Mark-XL) — personal-facts memory + local STT/TTS
-- [**superpowers**](https://github.com/obra/superpowers) — development methodology
-
-Model access via [NVIDIA NIM](https://build.nvidia.com/), [Google Gemini](https://ai.google.dev/), and [Ollama](https://ollama.com/).
+- **Wire, don't rewrite** — adopt proven implementations; integration over invention.
+- **One LLM path** — everything goes through `LiteLLMEngine`; one place for fallback, cost, and tracing.
+- **No hardcoded models / no leaked secrets** — model ids and keys live only in `.env`.
+- **No backbone/vendor edits** — all new behavior lives in the sidecar + a handful of `scripts/jarvis_*.py` modules.
+- **Phase gates** — each feature is shipped behind a brainstorm → spec → TDD → gate cycle.
 
 ---
 
 <div align="center">
-<sub>Built as a personal/prototype-scale agentic orchestrator. Vendored repos are referenced under their own licenses.</sub>
+<sub>Built on <a href="https://github.com/open-jarvis/OpenJarvis">OpenJarvis</a> · NVIDIA NIM · LiteLLM · FastAPI · React · MCP — local-first, Windows.</sub>
 </div>
