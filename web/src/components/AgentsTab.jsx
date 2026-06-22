@@ -1,45 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, useReactFlow,
-  useNodesState, useEdgesState, ConnectionMode,
+  useNodesState, useEdgesState, addEdge, ConnectionMode,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { Play, Save, Trash2 } from 'lucide-react'
 
-import { AGENT_CATALOG, agentById, resolveModel } from '../lib/agents'
+import { agentsByCategory, agentById, resolveModel } from '../lib/agents'
 import { getBoard, saveBoard } from '../lib/boardApi'
 import { fetchModels } from '../lib/chatSocket'
-import { runBoardCouncil } from '../lib/boardSocket'
+import { runGraph } from '../lib/graphSocket'
 import AgentNode from './board/AgentNode'
 import OrchestratorNode from './board/OrchestratorNode'
 import PipeEdge from './board/PipeEdge'
 import AgentCard from './board/AgentCard'
 
-const MAX_ACTIVE = 3            // NIM free-tier proposer cap (CLAUDE.md)
 const ORCH_ID = 'orchestrator'
 const nodeTypes = { agent: AgentNode, orchestrator: OrchestratorNode }
 const edgeTypes = { pipe: PipeEdge }
 
 const orchestratorNode = {
-  id: ORCH_ID, type: 'orchestrator', position: { x: 380, y: 230 },
+  id: ORCH_ID, type: 'orchestrator', position: { x: 520, y: 240 },
   data: { status: 'idle', synthesis: '' },
   draggable: true, selectable: false, deletable: false,
 }
 
-// First MAX_ACTIVE agent nodes stay wired; the rest are benched (greyed, no pipe).
-function normalizeBench(nodes) {
-  let active = 0
-  return nodes.map((n) => {
-    if (n.type !== 'agent') return n
-    const benched = active >= MAX_ACTIVE
-    if (!benched) active += 1
-    return n.data.benched === benched ? n : { ...n, data: { ...n.data, benched } }
-  })
+function feedEdge(source, target, accent = '#22d3ee') {
+  return { id: `e_${source}__${target}`, source, target, type: 'pipe',
+           data: { accent, status: 'idle', kind: 'feeds' } }
 }
 
 function Board() {
   const [nodes, setNodes, onNodesChange] = useNodesState([orchestratorNode])
-  const [edges, setEdges] = useEdgesState([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState([])
   const [models, setModels] = useState({ task_map: {}, models: [] })
   const [task, setTask] = useState('')
   const [running, setRunning] = useState(false)
@@ -48,7 +41,6 @@ function Board() {
 
   const modelsRef = useRef(models)
   const synthRef = useRef('')
-  const runRef = useRef(null)
   const { screenToFlowPosition, fitView } = useReactFlow()
 
   useEffect(() => { modelsRef.current = models }, [models])
@@ -59,11 +51,21 @@ function Board() {
       : n)))
   }, [setNodes])
 
-  const removeAgent = useCallback((id) => {
-    setNodes((nds) => normalizeBench(nds.filter((n) => n.id !== id)))
-  }, [setNodes])
+  const pulseEdge = useCallback((source, target) => {
+    setEdges((eds) => eds.map((e) => (e.source === source && e.target === target
+      ? { ...e, data: { ...e.data, status: 'pulsing' } } : e)))
+    setTimeout(() => {
+      setEdges((eds) => eds.map((e) => (e.source === source && e.target === target
+        ? { ...e, data: { ...e.data, status: 'done' } } : e)))
+    }, 700)
+  }, [setEdges])
 
-  const createAgentNode = useCallback((id, agentId, position, model, benched) => {
+  const removeAgent = useCallback((id) => {
+    setNodes((nds) => nds.filter((n) => n.id !== id))
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
+  }, [setNodes, setEdges])
+
+  const createAgentNode = useCallback((id, agentId, position, model) => {
     const agent = agentById(agentId)
     return {
       id, type: 'agent', position,
@@ -71,7 +73,7 @@ function Board() {
         agent,
         model: model || resolveModel(agent, modelsRef.current),
         models: modelsRef.current.models || [],
-        status: 'idle', tokens: '', benched: !!benched,
+        status: 'idle', tokens: '',
         onRemove: () => removeAgent(id),
         onModelChange: (m) => patchNode(id, { model: m }),
       },
@@ -79,48 +81,50 @@ function Board() {
   }, [removeAgent, patchNode])
 
   const addAgent = useCallback((agentId, position) => {
-    if (!agentById(agentId)) return
+    const agent = agentById(agentId)
+    if (!agent) return
     const id = `a_${agentId}_${Date.now()}`
     setNodes((nds) => {
-      // Drop = explicit position; click-add = stack in a left column (stays in
-      // view; the orchestrator sits to the right so pipes flow left->center).
       let pos = position
       if (!pos) {
         const i = nds.filter((n) => n.type === 'agent').length
-        pos = { x: 60, y: 60 + (i % 4) * 140 }
+        pos = { x: 60, y: 60 + (i % 5) * 120 }
       }
-      return normalizeBench([...nds, createAgentNode(id, agentId, pos)])
+      return [...nds, createAgentNode(id, agentId, pos)]
     })
-  }, [createAgentNode, setNodes])
+    // default wiring: new agent feeds the orchestrator (flat board = council case)
+    setEdges((eds) => addEdge(feedEdge(id, ORCH_ID, agent.accent), eds))
+  }, [createAgentNode, setNodes, setEdges])
 
-  // Edges are derived from the nodes: one pipe per active agent, its status (and
-  // accent) read straight off the node — so a status patch recolors the pipe.
-  useEffect(() => {
-    const active = nodes.filter((n) => n.type === 'agent' && !n.data.benched)
-    setEdges(active.map((n) => ({
-      id: `e_${n.id}`, source: ORCH_ID, target: n.id, type: 'pipe',
-      data: { accent: n.data.agent.accent, status: n.data.status },
-    })))
+  // User draws an edge between two handles -> a "feeds" edge.
+  const onConnect = useCallback((params) => {
+    if (!params.source || !params.target || params.source === params.target) return
+    const srcAgentId = nodes.find((n) => n.id === params.source)?.data?.agent?.id
+    const accent = agentById(srcAgentId)?.accent || '#22d3ee'
+    setEdges((eds) => addEdge(feedEdge(params.source, params.target, accent), eds))
   }, [nodes, setEdges])
 
-  // Load models, then restore the saved board.
+  // Load models, then restore the saved board (nodes + drawn edges).
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       const m = await fetchModels()
       if (cancelled) return
-      setModels(m)
-      modelsRef.current = m
+      setModels(m); modelsRef.current = m
       const saved = await getBoard()
       if (cancelled || !saved.nodes || saved.nodes.length === 0) return
       const restored = saved.nodes
         .filter((sn) => agentById(sn.persona))
-        .map((sn) => createAgentNode(sn.id, sn.persona, { x: sn.x ?? 140, y: sn.y ?? 140 },
-          sn.model, sn.benched))
-      setNodes(normalizeBench([orchestratorNode, ...restored]))
+        .map((sn) => createAgentNode(sn.id, sn.persona,
+          { x: sn.x ?? 140, y: sn.y ?? 140 }, sn.model))
+      setNodes([orchestratorNode, ...restored])
+      const restoredEdges = (saved.edges || [])
+        .filter((e) => e.source && e.target)
+        .map((e) => feedEdge(e.source, e.target))
+      setEdges(restoredEdges)
     })()
     return () => { cancelled = true }
-  }, [createAgentNode, setNodes])
+  }, [createAgentNode, setNodes, setEdges])
 
   // Keep model dropdowns in sync once /api/models resolves.
   useEffect(() => {
@@ -128,7 +132,6 @@ function Board() {
       ? { ...n, data: { ...n.data, models: models.models || [] } } : n)))
   }, [models, setNodes])
 
-  // Reframe so every placed agent stays in view (fitView only auto-runs on mount).
   const agentCount = nodes.filter((n) => n.type === 'agent').length
   useEffect(() => {
     if (agentCount === 0) return undefined
@@ -144,71 +147,60 @@ function Board() {
   }, [addAgent, screenToFlowPosition])
 
   const onDragOver = useCallback((e) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'
   }, [])
 
   const resetStatuses = useCallback(() => {
     setNodes((nds) => nds.map((n) => (n.type === 'agent'
       ? { ...n, data: { ...n.data, status: 'idle', tokens: '' } } : n)))
+    setEdges((eds) => eds.map((e) => ({ ...e, data: { ...e.data, status: 'idle' } })))
     patchNode(ORCH_ID, { status: 'idle' })
-  }, [setNodes, patchNode])
+  }, [setNodes, setEdges, patchNode])
 
   const onFrame = useCallback((f) => {
     if (f.type === 'error') {
-      setError(f.detail || 'Council failed')
-      setRunning(false)
-      resetStatuses()
-      return
+      setError(f.detail || 'Graph failed'); setRunning(false); resetStatuses(); return
     }
-    const label = f.label || ''
-    // Proposer frames are labelled "PROPOSAL <n> — <persona>"; map by the index
-    // (robust to persona/dash quirks) to the node placed in that roster slot.
-    const order = runRef.current?.order || []
-    const m = label.match(/^PROPOSAL (\d+)/)
-    const proposerId = m ? order[Number(m[1]) - 1] : null
-    const isSynthPhase = label.startsWith('CRITIQUE') || label.startsWith('SYNTHESIZED')
-
-    if (f.type === 'voice_start') {
-      if (proposerId) patchNode(proposerId, { status: 'pulsing', tokens: '' })
-      if (isSynthPhase) patchNode(ORCH_ID, { status: 'busy' })
-    } else if (f.type === 'voice_chunk') {
-      if (proposerId) patchNode(proposerId, (d) => ({ tokens: (d.tokens || '') + f.content }))
-      if (label.startsWith('SYNTHESIZED')) {
-        synthRef.current += f.content
-        setSynthesis(synthRef.current)
-      }
-    } else if (f.type === 'voice_end') {
-      if (proposerId) patchNode(proposerId, { status: 'done' })
-    } else if (f.type === 'council_done') {
+    if (f.type === 'node_start') {
+      if (f.node === ORCH_ID) patchNode(ORCH_ID, { status: 'busy' })
+      else patchNode(f.node, { status: 'pulsing', tokens: '' })
+    } else if (f.type === 'node_chunk') {
+      if (f.node === ORCH_ID) { synthRef.current += f.content; setSynthesis(synthRef.current) }
+      else patchNode(f.node, (d) => ({ tokens: (d.tokens || '') + f.content }))
+    } else if (f.type === 'node_end') {
+      if (f.node !== ORCH_ID) patchNode(f.node, { status: 'done' })
+    } else if (f.type === 'edge_flow') {
+      pulseEdge(f.source, f.target)
+    } else if (f.type === 'graph_done') {
       setRunning(false)
-      patchNode(ORCH_ID, { status: 'idle', synthesis: synthRef.current })
+      patchNode(ORCH_ID, { status: 'idle', synthesis: f.output || synthRef.current })
+      if (f.output) { synthRef.current = f.output; setSynthesis(f.output) }
     }
-  }, [patchNode, resetStatuses])
+  }, [patchNode, pulseEdge, resetStatuses])
 
-  const runCouncil = useCallback(() => {
+  const runGraphNow = useCallback(() => {
     const q = task.trim()
-    if (!q) { setError('Type a task for the agents to plan.'); return }
-    const active = nodes.filter((n) => n.type === 'agent' && !n.data.benched)
-    if (active.length === 0) { setError('Drop at least one agent onto the board first.'); return }
-    setError('')
-    setSynthesis('')
-    synthRef.current = ''
-    const roster = active.map((n) => ({
-      persona: n.data.agent.persona, lens: n.data.agent.lens, model: n.data.model,
-    }))
-    runRef.current = { order: active.map((n) => n.id) }
-    resetStatuses()
-    setRunning(true)
-    runBoardCouncil({ task: q, roster, onFrame, onClose: () => setRunning(false) })
-  }, [task, nodes, onFrame, resetStatuses])
+    if (!q) { setError('Type a task for the agents to reason over.'); return }
+    const agentNodes = nodes.filter((n) => n.type === 'agent')
+    if (agentNodes.length === 0) { setError('Drop at least one agent onto the board first.'); return }
+    setError(''); setSynthesis(''); synthRef.current = ''
+    const payloadNodes = [
+      ...agentNodes.map((n) => ({ id: n.id, persona: n.data.agent.persona,
+        lens: n.data.agent.lens, model: n.data.model })),
+      { id: ORCH_ID, persona: 'Orchestrator' },
+    ]
+    const payloadEdges = edges.map((e) => ({ source: e.source, target: e.target }))
+    resetStatuses(); setRunning(true)
+    runGraph({ task: q, nodes: payloadNodes, edges: payloadEdges, onFrame,
+               onClose: () => setRunning(false) })
+  }, [task, nodes, edges, onFrame, resetStatuses])
 
   const onSave = useCallback(async () => {
     const agentNodes = nodes.filter((n) => n.type === 'agent')
     const payload = {
       nodes: agentNodes.map((n) => ({
         id: n.id, persona: n.data.agent.id, model: n.data.model,
-        x: Math.round(n.position.x), y: Math.round(n.position.y), benched: !!n.data.benched,
+        x: Math.round(n.position.x), y: Math.round(n.position.y),
       })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
       models: Object.fromEntries(agentNodes.map((n) => [n.data.agent.id, n.data.model])),
@@ -218,35 +210,40 @@ function Board() {
   }, [nodes, edges])
 
   const onClear = useCallback(() => {
-    setNodes([orchestratorNode])
-    setSynthesis('')
-    synthRef.current = ''
-  }, [setNodes])
+    setNodes([orchestratorNode]); setEdges([])
+    setSynthesis(''); synthRef.current = ''
+  }, [setNodes, setEdges])
 
-  const activeCount = nodes.filter((n) => n.type === 'agent' && !n.data.benched).length
+  const groups = agentsByCategory()
 
   return (
     <div className="flex h-full min-h-0">
-      {/* palette */}
-      <aside className="w-52 shrink-0 glass border-y-0 border-l-0 flex flex-col">
+      <aside className="w-56 shrink-0 glass border-y-0 border-l-0 flex flex-col">
         <div className="px-3 py-3 border-b border-core/10">
           <div className="eyebrow">agent library</div>
-          <div className="tag mt-1">drag onto the board · {activeCount}/{MAX_ACTIVE} active</div>
+          <div className="tag mt-1">drag onto the board · ≤3 run at once</div>
         </div>
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-          {AGENT_CATALOG.map((a) => <AgentCard key={a.id} agent={a} onAdd={addAgent} />)}
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+          {groups.map((g) => (
+            <div key={g.category}>
+              <div className="eyebrow text-[10px] opacity-70 mb-1">{g.category}</div>
+              <div className="space-y-2">
+                {g.agents.map((a) => <AgentCard key={a.id} agent={a} onAdd={addAgent} />)}
+              </div>
+            </div>
+          ))}
         </div>
       </aside>
 
-      {/* canvas + task bar */}
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="flex-1 min-h-0 relative" onDrop={onDrop} onDragOver={onDragOver}>
           <ReactFlow
             nodes={nodes} edges={edges}
-            onNodesChange={onNodesChange}
+            onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
             nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             connectionMode={ConnectionMode.Loose}
-            nodesConnectable={false}
+            nodesConnectable
             fitView
             proOptions={{ hideAttribution: true }}
             style={{ background: 'transparent' }}
@@ -268,12 +265,11 @@ function Board() {
           <div className="flex items-center gap-2">
             <input
               value={task} onChange={(e) => setTask(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !running) runCouncil() }}
-              placeholder="Give the board a task — every active agent weighs in…"
-              className="flex-1 hud-input px-3 py-2 text-sm"
-              disabled={running}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !running) runGraphNow() }}
+              placeholder="Give the graph a task — agents reason over their upstream inputs…"
+              className="flex-1 hud-input px-3 py-2 text-sm" disabled={running}
             />
-            <button className="hud-btn px-4 py-2 text-sm" onClick={runCouncil} disabled={running}>
+            <button className="hud-btn px-4 py-2 text-sm" onClick={runGraphNow} disabled={running}>
               <Play size={15} /> {running ? 'Running…' : 'Run'}
             </button>
             <button className="hud-btn-ghost px-3 py-2 text-sm" onClick={onSave} title="Save board">
