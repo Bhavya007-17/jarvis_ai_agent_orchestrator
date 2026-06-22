@@ -27,6 +27,7 @@ import jarvis_providers  # Phase-7 provider keys (OpenAI/Anthropic/Groq/...) -> 
 import jarvis_memory   # Phase-3 personal_facts + session
 import jarvis_voice    # Phase-6 STT/TTS glue
 import jarvis_wake     # Phase-6 wake-word + VAD
+import jarvis_clicky   # Phase-11 (F) screen-aware Q&A + on-screen pointing
 from jarvis_memory import FactsStore
 from openjarvis.core.types import Message, Role
 from openjarvis.engine.litellm import LiteLLMEngine
@@ -623,6 +624,21 @@ async def vision_lock(payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Clicky (Slice F) — screen-aware Q&A + on-screen pointing.
+# Captures the sidecar host's screen, a NIM vision model (VISION_MODEL in .env)
+# locates the element via two-stage grid pointing, returns an annotated shot.
+# ---------------------------------------------------------------------------
+@app.post("/api/clicky/point")
+async def clicky_point(payload: dict) -> dict:
+    question = ((payload or {}).get("question") or "").strip()
+    if not question:
+        return {"found": False, "point": None, "screenshot_b64": None,
+                "description": "Please ask what to find on screen."}
+    # point() does blocking screen capture + a vision call; keep the loop free.
+    return await asyncio.to_thread(jarvis_clicky.point, question)
+
+
+# ---------------------------------------------------------------------------
 # Agent Board (Slice B) — persist the drag-drop layout server-side.
 # No browser localStorage (CLAUDE.md); the board lives in ~/.openjarvis/board.json.
 # ---------------------------------------------------------------------------
@@ -724,7 +740,7 @@ async def put_board(payload: dict) -> dict:
 
 # Known module ids the shell may persist — mirrors web/src/shell/modules.js.
 UI_MODULES = {"chat", "voice", "agents", "council", "graph",
-              "memory", "tools", "settings", "vision"}
+              "memory", "tools", "settings", "vision", "clicky"}
 _EMPTY_LAYOUT = {"windows": {}}
 
 

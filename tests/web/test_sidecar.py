@@ -138,3 +138,21 @@ def test_mcp_add_server_rejects_shell_and_quotes(monkeypatch):
     assert client.post("/api/mcp/servers", json={"name": "ok", "command": "node", "args": ["a'b"]}).json()["ok"] is False
     good = client.post("/api/mcp/servers", json={"name": "good-one", "command": "node", "args": ["x.js"]}).json()
     assert good["ok"] is True
+
+
+def test_clicky_point_requires_question():
+    r = client.post("/api/clicky/point", json={"question": ""}).json()
+    assert r["found"] is False and "ask" in r["description"].lower()
+
+
+def test_clicky_point_proxies_to_module(monkeypatch):
+    monkeypatch.setattr(
+        jarvis_web_api.jarvis_clicky,
+        "point",
+        lambda q: {"found": True, "point": [10, 20], "screenshot_b64": "abc",
+                   "description": f"located {q}"},
+    )
+    r = client.post("/api/clicky/point", json={"question": "where is Save"}).json()
+    assert r["found"] is True
+    assert r["point"] == [10, 20]
+    assert "where is Save" in r["description"]

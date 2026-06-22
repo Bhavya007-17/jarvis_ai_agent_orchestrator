@@ -1,4 +1,4 @@
-import { MessageSquare, Mic, Share2, Users, Network, Brain, Wrench, Settings as SettingsIcon, Camera } from 'lucide-react'
+import { MessageSquare, Mic, Share2, Users, Network, Brain, Wrench, Settings as SettingsIcon, Camera, Crosshair } from 'lucide-react'
 import ChatTab from '../components/ChatTab'
 import VoiceTab from '../components/VoiceTab'
 import AgentsTab from '../components/AgentsTab'
@@ -8,6 +8,7 @@ import MemoryTab from '../components/MemoryTab'
 import ToolsTab from '../components/ToolsTab'
 import SettingsTab from '../components/SettingsTab'
 import VisionTab from '../components/VisionTab'
+import ClickyTab from '../components/ClickyTab'
 
 // One source of truth mapping module id -> bottom-bar entry + window content.
 // `props` lists which shell-level props (model/setModel) to forward. ids MUST
@@ -22,6 +23,7 @@ export const MODULES = [
   { id: 'tools',    label: 'Tools',       icon: Wrench,        Component: ToolsTab,    props: [],                   defaultRect: { x: 380, y: 170, w: 600, h: 500 } },
   { id: 'settings', label: 'Settings',    icon: SettingsIcon,  Component: SettingsTab, props: ['model', 'setModel'], defaultRect: { x: 400, y: 180, w: 600, h: 560 } },
   { id: 'vision',   label: 'Vision',      icon: Camera,        Component: VisionTab,   props: ['onGestureAction'],  defaultRect: { x: 320, y: 140, w: 640, h: 560 } },
+  { id: 'clicky',   label: 'Clicky',      icon: Crosshair,     Component: ClickyTab,   props: [],                   defaultRect: { x: 340, y: 150, w: 680, h: 560 } },
 ]
 
 export const MODULE_BY_ID = Object.fromEntries(MODULES.map((m) => [m.id, m]))
