@@ -151,3 +151,9 @@ jarvis-orchestrator-spec.md
 # Phase 10 vision model + wasm assets (downloaded via scripts/fetch_vision_models.ps1)
 web/public/mediapipe/
 
+
+# Planning / working docs — kept local, excluded from the published repo.
+/PROGRESS.md
+/FEATURES.md
+/REVIEW.md
+/README.openjarvis.md
