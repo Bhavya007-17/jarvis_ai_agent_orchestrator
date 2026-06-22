@@ -1,0 +1,31 @@
+import { test, expect } from '@playwright/test'
+
+// Build a 21-point hand where chosen fingertips are "extended" (tip.y < pip.y).
+// Fingertips 8/12/16/20 with pips 6/10/14/18; thumb tip 4 / ip 3; wrist refs 5,17.
+function hand({ index = false, middle = false, ring = false, pinky = false, pinch = false } = {}) {
+  const lm = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5, z: 0 }))
+  const setFinger = (tip, pip, extended) => {
+    lm[pip] = { x: 0.5, y: 0.5, z: 0 }
+    lm[tip] = { x: 0.5, y: extended ? 0.2 : 0.8, z: 0 } // extended => tip above pip
+  }
+  setFinger(8, 6, index); setFinger(12, 10, middle)
+  setFinger(16, 14, ring); setFinger(20, 18, pinky)
+  lm[5] = { x: 0.6, y: 0.5, z: 0 }; lm[17] = { x: 0.4, y: 0.5, z: 0 } // 5.x > 17.x
+  lm[3] = { x: 0.5, y: 0.5, z: 0 }; lm[4] = { x: 0.45, y: 0.5, z: 0 } // thumb folded
+  if (pinch) { lm[4] = { x: 0.5, y: 0.5, z: 0 }; lm[8] = { x: 0.51, y: 0.51, z: 0 } }
+  return lm
+}
+
+test('classifyGesture recognizes the mapped gestures', async ({ page }) => {
+  await page.goto('http://localhost:5173/')
+  const classify = (landmarks) =>
+    page.evaluate(async (lms) => {
+      const m = await import('/src/lib/handGestures.js')
+      return m.classifyGesture(lms)
+    }, landmarks)
+
+  expect(await classify(hand({ index: true, middle: true, ring: true, pinky: true }))).toBe('Open Palm')
+  expect(await classify(hand({}))).toBe('Closed Fist')
+  expect(await classify(hand({ index: true, middle: true }))).toBe('Peace Sign')
+  expect(await classify(hand({ index: true, middle: true, ring: true, pinky: true, pinch: true }))).toBe('Pinching')
+})
