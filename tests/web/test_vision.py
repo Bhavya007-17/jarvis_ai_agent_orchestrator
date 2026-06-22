@@ -60,3 +60,60 @@ def test_lock_store(tmp_path, monkeypatch):
     assert lock.enabled() is True
     lock.set(False)
     assert lock.enabled() is False
+
+
+# ---------------------------------------------------------------------------
+# Endpoint tests (Task 2)
+# ---------------------------------------------------------------------------
+import importlib
+from fastapi.testclient import TestClient
+
+
+def _client(tmp_path, monkeypatch):
+    monkeypatch.setattr(jv, "_config_dir", lambda: tmp_path)
+    web = importlib.import_module("jarvis_web_api")
+    return TestClient(web.app)
+
+
+def test_vision_endpoints_flow(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+
+    # not enrolled yet
+    r = client.get("/api/vision/status")
+    assert r.json() == {"enrolled": False, "lock_enabled": False}
+
+    # verify before enroll -> no match, never 500
+    r = client.post("/api/vision/verify", json={"vector": [0.1, 0.2, 0.3]})
+    assert r.json() == {"match": False, "similarity": 0.0}
+
+    # bad enroll payloads rejected
+    assert client.post("/api/vision/enroll", json={"vector": "nope"}).json()["ok"] is False
+    assert client.post("/api/vision/enroll", json={"vector": [True, False]}).json()["ok"] is False
+
+    # enroll, then status flips
+    ref = [0.1, 0.2, 0.3]
+    assert client.post("/api/vision/enroll", json={"vector": ref}).json()["ok"] is True
+    assert client.get("/api/vision/status").json()["enrolled"] is True
+
+    # matching vector verifies, different vector does not
+    assert client.post("/api/vision/verify", json={"vector": ref}).json()["match"] is True
+    assert client.post("/api/vision/verify", json={"vector": [3.0, -1.0, 0.0]}).json()["match"] is False
+
+    # lock toggle
+    assert client.put("/api/vision/lock", json={"enabled": True}).json()["lock_enabled"] is True
+    assert client.get("/api/vision/status").json()["lock_enabled"] is True
+
+
+def test_vision_never_returns_the_stored_vector(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    ref = [0.123456, 0.654321, 0.314159]
+    client.post("/api/vision/enroll", json={"vector": ref})
+    bodies = [
+        client.get("/api/vision/status").text,
+        client.post("/api/vision/enroll", json={"vector": ref}).text,
+        client.post("/api/vision/verify", json={"vector": ref}).text,
+        client.put("/api/vision/lock", json={"enabled": True}).text,
+    ]
+    for body in bodies:
+        assert "0.123456" not in body
+        assert "0.654321" not in body

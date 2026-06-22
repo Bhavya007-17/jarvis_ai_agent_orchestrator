@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import jarvis_router  # Phase-1 router (classify / build_ladder / complete_with_fallback)
 import jarvis_council  # Phase-4 multi-model planning council
+import jarvis_vision   # Phase-10 vision: landmark compare + reference/lock stores
 import jarvis_graph    # Phase-9 agent graph (topological multi-agent execution)
 import jarvis_providers  # Phase-7 provider keys (OpenAI/Anthropic/Groq/...) -> .env + live env
 import jarvis_memory   # Phase-3 personal_facts + session
@@ -581,6 +582,47 @@ async def set_provider(payload: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Phase 10 - Vision & camera. Browser (MediaPipe WASM) extracts landmark vectors;
+# the server owns only the cosine-compare decision + the enrolled reference, which
+# is treated like a secret (presence-only, never returned). No LLM path involved.
+# ---------------------------------------------------------------------------
+@app.get("/api/vision/status")
+def vision_status() -> dict:
+    return {"enrolled": jarvis_vision.FaceReferenceStore().enrolled(),
+            "lock_enabled": jarvis_vision.LockStore().enabled()}
+
+
+@app.post("/api/vision/enroll")
+async def vision_enroll(payload: dict) -> dict:
+    vector = (payload or {}).get("vector")
+    err = jarvis_vision.validate_vector(vector)
+    if err:
+        return {"ok": False, "message": err}
+    jarvis_vision.FaceReferenceStore().save(vector)
+    return {"ok": True, "enrolled": True}
+
+
+@app.post("/api/vision/verify")
+async def vision_verify(payload: dict) -> dict:
+    vector = (payload or {}).get("vector")
+    err = jarvis_vision.validate_vector(vector)
+    if err:
+        return {"match": False, "similarity": 0.0, "message": err}
+    ref = jarvis_vision.FaceReferenceStore().load()
+    if ref is None:
+        return {"match": False, "similarity": 0.0}
+    match, sim = jarvis_vision.compare_landmarks(ref["vector"], vector)
+    return {"match": bool(match), "similarity": round(float(sim), 6)}
+
+
+@app.put("/api/vision/lock")
+async def vision_lock(payload: dict) -> dict:
+    enabled = bool((payload or {}).get("enabled", False))
+    jarvis_vision.LockStore().set(enabled)
+    return {"ok": True, "lock_enabled": enabled}
+
+
+# ---------------------------------------------------------------------------
 # Agent Board (Slice B) — persist the drag-drop layout server-side.
 # No browser localStorage (CLAUDE.md); the board lives in ~/.openjarvis/board.json.
 # ---------------------------------------------------------------------------
@@ -682,7 +724,7 @@ async def put_board(payload: dict) -> dict:
 
 # Known module ids the shell may persist — mirrors web/src/shell/modules.js.
 UI_MODULES = {"chat", "voice", "agents", "council", "graph",
-              "memory", "tools", "settings"}
+              "memory", "tools", "settings", "vision"}
 _EMPTY_LAYOUT = {"windows": {}}
 
 
