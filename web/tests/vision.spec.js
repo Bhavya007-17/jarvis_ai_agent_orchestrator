@@ -47,3 +47,32 @@ test('AuthLock unlocks on a verified match', async ({ page }) => {
   await expect(page.getByText('SYSTEM LOCKED')).toBeVisible()
   await expect(page.getByText('SYSTEM UNLOCKED')).toBeVisible({ timeout: 5000 })
 })
+
+// Gesture fires a mapped window action.
+test('Open Palm gesture opens the Chat window', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__VISION_FAKE__ = {
+      faceFactory: async () => ({ extract: () => [0.1, 0.2, 0.3] }),
+      handFactory: async () => {
+        const seq = ['None', 'Open Palm', 'Open Palm']
+        let i = 0
+        return { detect: () => seq[Math.min(i++, seq.length - 1)] }
+      },
+    }
+  })
+  await page.route('**/api/vision/status', (r) =>
+    r.fulfill({ json: { enrolled: false, lock_enabled: false } }))
+
+  await page.goto('http://localhost:5173/')
+  await page.getByRole('button', { name: 'Vision' }).click()
+  await page.getByRole('button', { name: /gesture/i }).click()
+  await expect(page.getByText('Chat', { exact: false })).toBeVisible({ timeout: 5000 })
+})
+
+test('Visualizer canvas renders inside the Vision module', async ({ page }) => {
+  await page.route('**/api/vision/status', (r) =>
+    r.fulfill({ json: { enrolled: false, lock_enabled: false } }))
+  await page.goto('http://localhost:5173/')
+  await page.getByRole('button', { name: 'Vision' }).click()
+  await expect(page.locator('canvas')).toBeVisible()
+})
