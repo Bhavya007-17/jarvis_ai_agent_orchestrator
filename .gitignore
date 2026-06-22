@@ -148,3 +148,6 @@ jarvis-cursor-prompts.md
 claude-code-build-prompt.md
 jarvis-orchestrator-spec.md
 
+# Phase 10 vision model + wasm assets (downloaded via scripts/fetch_vision_models.ps1)
+web/public/mediapipe/
+
