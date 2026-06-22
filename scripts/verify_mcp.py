@@ -27,6 +27,8 @@ from openjarvis.mcp.loader import load_mcp_tools_from_config
 _EXPECTED = {
     "codebase-memory": {"search_graph", "get_architecture", "index_repository"},
     "agent-reach": {"get_status"},
+    # Phase 11 / slice D — the ported action tools (jarvis_tools_mcp.py).
+    "jarvis-tools": {"web_search", "weather", "reminder"},
 }
 
 

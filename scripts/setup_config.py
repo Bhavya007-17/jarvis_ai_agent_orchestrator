@@ -75,6 +75,23 @@ def _has_agent_reach() -> bool:
     )
 
 
+def _tools_server() -> dict | None:
+    """Build the ``jarvis-tools`` MCP server entry (Phase 11 / slice D).
+
+    The action-tools server is a sibling script run by the project interpreter.
+    Returns ``None`` only if the script is somehow missing (it ships in
+    ``scripts/`` next to this file).
+    """
+    script = Path(__file__).resolve().parent / "jarvis_tools_mcp.py"
+    if not script.exists():
+        return None
+    return {
+        "name": "jarvis-tools",
+        "command": sys.executable,
+        "args": [str(script)],
+    }
+
+
 def build_mcp_servers() -> list[dict]:
     """Build the ``config.tools.mcp.servers`` list for Phase 2.
 
@@ -119,6 +136,13 @@ def build_mcp_servers() -> list[dict]:
             "— skipping that MCP server.",
             file=sys.stderr,
         )
+
+    tools = _tools_server()
+    if tools:
+        servers.append(tools)
+        print(f"[ok] MCP server 'jarvis-tools' -> {tools['command']} {tools['args'][0]}")
+    else:
+        print("[warn] jarvis_tools_mcp.py not found — skipping that MCP server.", file=sys.stderr)
 
     return servers
 
