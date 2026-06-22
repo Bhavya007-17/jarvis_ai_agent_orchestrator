@@ -29,3 +29,21 @@ test('classifyGesture recognizes the mapped gestures', async ({ page }) => {
   expect(await classify(hand({ index: true, middle: true }))).toBe('Peace Sign')
   expect(await classify(hand({ index: true, middle: true, ring: true, pinky: true, pinch: true }))).toBe('Pinching')
 })
+
+// AuthLock unlock via injected fake recognizer. The app reads window.__VISION_FAKE__
+// so we can drive recognition deterministically without a camera or WASM.
+test('AuthLock unlocks on a verified match', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__VISION_FAKE__ = {
+      faceFactory: async () => ({ extract: () => [0.1, 0.2, 0.3] }),
+    }
+  })
+  await page.route('**/api/vision/status', (r) =>
+    r.fulfill({ json: { enrolled: true, lock_enabled: true } }))
+  await page.route('**/api/vision/verify', (r) =>
+    r.fulfill({ json: { match: true, similarity: 0.99 } }))
+
+  await page.goto('http://localhost:5173/')
+  await expect(page.getByText('SYSTEM LOCKED')).toBeVisible()
+  await expect(page.getByText('SYSTEM UNLOCKED')).toBeVisible({ timeout: 5000 })
+})
